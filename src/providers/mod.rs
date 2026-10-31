@@ -7,10 +7,13 @@
 //! 1. Translating the inbound OpenAI-shaped request into the upstream's format.
 //! 2. Normalising the upstream's response back into OpenAI SSE frames.
 //! 3. **Not** returning from [`LlmProvider::execute_stream`] until a first
-//!    content frame is actually in hand — that is what lets the executor commit
+//!    frame is actually in hand — that is what lets the executor commit
 //!    `HTTP 200` downstream only once the upstream has proven it will answer.
 
+pub mod anthropic;
+pub mod gemini;
 pub mod openai;
+pub(crate) mod sse;
 
 use std::pin::Pin;
 use std::time::Duration;
@@ -18,6 +21,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures_core::Stream;
+use futures_util::StreamExt;
 
 use crate::error::RouterError;
 use crate::proxy::inspector::ProxyRequest;
@@ -51,8 +55,8 @@ pub trait LlmProvider: Send + Sync + 'static {
     /// Dispatches a streaming request.
     ///
     /// Must await the HTTP response headers **and** pull the first non-empty
-    /// data frame before returning, so a stalled upstream can still be failed
-    /// over before any bytes reach the client.
+    /// frame before returning, so a stalled upstream can still be failed over
+    /// before any bytes reach the client.
     async fn execute_stream(
         &self,
         upstream_model: &str,
@@ -91,4 +95,58 @@ pub fn build_upstream_http_client(timeout_ms: u64) -> Result<reqwest::Client, Ro
         .map_err(|error| RouterError::Internal {
             message: format!("failed to build upstream HTTP client: {error}"),
         })
+}
+
+/// Pulls from `stream` until a non-empty chunk arrives.
+///
+/// This is the pre-first-token gate: adapters call it before returning, so a
+/// stream that has only produced keep-alives, or has already ended, fails over
+/// to the next candidate instead of committing a downstream `200 OK`.
+pub(crate) async fn await_first_frame(
+    mut stream: SseByteStream,
+    provider: &str,
+) -> Result<(Bytes, SseByteStream), RouterError> {
+    loop {
+        match stream.next().await {
+            Some(Ok(bytes)) if !bytes.is_empty() => return Ok((bytes, stream)),
+            Some(Ok(_)) => continue,
+            Some(Err(error)) => return Err(error),
+            None => {
+                return Err(RouterError::Transport {
+                    provider: provider.to_string(),
+                    message: "upstream closed the stream before producing any content frame"
+                        .to_string(),
+                })
+            }
+        }
+    }
+}
+
+/// Flattens OpenAI message content into plain text.
+///
+/// Accepts both the plain-string form and the multimodal array-of-parts form,
+/// where only `type = "text"` parts contribute.
+pub(crate) fn openai_content_text(content: Option<&serde_json::Value>) -> String {
+    let Some(content) = content else {
+        return String::new();
+    };
+
+    if let Some(text) = content.as_str() {
+        return text.to_string();
+    }
+
+    let Some(parts) = content.as_array() else {
+        return String::new();
+    };
+
+    let mut out = String::new();
+    for part in parts {
+        if part.get("type").and_then(|kind| kind.as_str()) != Some("text") {
+            continue;
+        }
+        if let Some(text) = part.get("text").and_then(|text| text.as_str()) {
+            out.push_str(text);
+        }
+    }
+    out
 }

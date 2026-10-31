@@ -63,6 +63,7 @@ impl MockServer {
         let app = Router::new()
             .route("/v1/chat/completions", post(handle))
             .route("/v1/messages", post(handle))
+            .route("/v1beta/models/:model", post(handle))
             .with_state(Arc::clone(&state));
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -81,6 +82,11 @@ impl MockServer {
     /// Base URL to hand to a provider config, including the `/v1` segment.
     pub fn base_url(&self) -> String {
         format!("http://{}/v1", self.addr)
+    }
+
+    /// Bare origin, used by adapters that build their own path (Gemini).
+    pub fn root_url(&self) -> String {
+        format!("http://{}", self.addr)
     }
 
     /// Everything the mock has received so far, in arrival order.
@@ -166,16 +172,53 @@ async fn handle(
             (Duration::from_millis(20), data_frame("Hello")),
             (Duration::ZERO, Bytes::from_static(b"data: [DONE]\n\n")),
         ]),
-        _ => sse_response(vec![
-            (Duration::ZERO, data_frame("Hello")),
-            (Duration::from_millis(5), data_frame(" world")),
-            (Duration::from_millis(5), data_frame("!")),
-            (
-                Duration::from_millis(5),
-                Bytes::from_static(b"data: [DONE]\n\n"),
-            ),
-        ]),
+        _ => {
+            let path = uri.path();
+            if path.starts_with("/v1beta/") {
+                gemini_sse_response()
+            } else if path == "/v1/messages" {
+                anthropic_sse_response()
+            } else {
+                sse_response(vec![
+                    (Duration::ZERO, data_frame("Hello")),
+                    (Duration::from_millis(5), data_frame(" world")),
+                    (Duration::from_millis(5), data_frame("!")),
+                    (
+                        Duration::from_millis(5),
+                        Bytes::from_static(b"data: [DONE]\n\n"),
+                    ),
+                ])
+            }
+        }
     }
+}
+
+/// Anthropic-shaped SSE, including keep-alives and non-content blocks.
+fn anthropic_sse_response() -> Response {
+    sse_response(vec![(
+        Duration::ZERO,
+        Bytes::from_static(
+            b": ping\n\n\
+event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_mock\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-3-7-sonnet-latest\",\"usage\":{\"input_tokens\":17,\"output_tokens\":1}}}\n\n\
+event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n\
+event: ping\ndata: {\"type\":\"ping\"}\n\n\
+event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n\
+event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" from Claude\"}}\n\n\
+event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":9}}\n\n\
+event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+        ),
+    )])
+}
+
+/// Gemini-shaped SSE: `data:`-only frames with no terminator event.
+fn gemini_sse_response() -> Response {
+    sse_response(vec![(
+        Duration::ZERO,
+        Bytes::from_static(
+            b"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello\"}],\"role\":\"model\"},\"index\":0}]}\n\n\
+data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\" from Gemini\"}],\"role\":\"model\"},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":5,\"candidatesTokenCount\":7,\"totalTokenCount\":12}}\n\n",
+        ),
+    )])
 }
 
 fn data_frame(content: &str) -> Bytes {

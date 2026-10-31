@@ -31,6 +31,7 @@ use self::ratelimit::resolve_tenant;
 use self::router_engine::resolve_candidates;
 use crate::error::RouterError;
 use crate::state::AppState;
+use crate::telemetry::metrics::{self, Metrics};
 
 /// Builds the public ingress router.
 pub fn build_router(state: Arc<AppState>) -> Router {
@@ -38,6 +39,25 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/chat/completions", post(chat_completions))
         .route("/healthz", get(healthz))
         .with_state(state)
+}
+
+/// Builds the ingress router with the Prometheus scrape endpoint attached.
+///
+/// Kept separate from [`build_router`] so tests and embeddings-only deployments
+/// need not install a global recorder.
+pub fn build_router_with_metrics(state: Arc<AppState>, metrics: Metrics) -> Router {
+    build_router(state).route(
+        "/metrics",
+        get(move || {
+            let metrics = metrics.clone();
+            async move {
+                (
+                    [(CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+                    metrics.render(),
+                )
+            }
+        }),
+    )
 }
 
 async fn healthz() -> &'static str {
@@ -66,11 +86,16 @@ async fn handle_chat(
     // underneath a dispatch that is already in flight.
     let config = state.config();
 
-    if let Some((tenant, limits)) = resolve_tenant(&config, &request.headers) {
+    let tenant = resolve_tenant(&config, &request.headers);
+    if let Some((tenant_name, limits)) = &tenant {
         state
             .rate_limiter()
-            .enforce(&tenant, limits, request.estimated_prompt_tokens)?;
+            .enforce(tenant_name, limits, request.estimated_prompt_tokens)?;
     }
+    // Attribute tokens even when no limit block is configured.
+    let tenant_name = tenant
+        .map(|(name, _)| name)
+        .unwrap_or_else(|| "anonymous".to_string());
 
     let resolution = resolve_candidates(&config, &request, state.health())?;
 
@@ -85,9 +110,29 @@ async fn handle_chat(
 
     if request.is_stream {
         let outcome = dispatch_stream(&state, &config, &request, &resolution).await?;
+        // Streaming responses do not report usage, so the estimate is what we
+        // have to bill against.
+        metrics::record_tokens(
+            &tenant_name,
+            &outcome.provider,
+            "prompt",
+            request.estimated_prompt_tokens as u64,
+        );
         Ok(sse_response(&request.request_id, outcome))
     } else {
         let outcome = dispatch_json(&state, &config, &request, &resolution).await?;
+        metrics::record_tokens(
+            &tenant_name,
+            &outcome.provider,
+            "prompt",
+            outcome.response.prompt_tokens as u64,
+        );
+        metrics::record_tokens(
+            &tenant_name,
+            &outcome.provider,
+            "completion",
+            outcome.response.completion_tokens as u64,
+        );
         Ok(json_response(&request.request_id, outcome))
     }
 }
@@ -120,7 +165,11 @@ fn sse_response(request_id: &str, outcome: StreamDispatch) -> Response {
 }
 
 fn json_response(request_id: &str, outcome: JsonDispatch) -> Response {
-    let JsonDispatch { response, upstream } = outcome;
+    let JsonDispatch {
+        response,
+        upstream,
+        provider: _,
+    } = outcome;
 
     let status = StatusCode::from_u16(response.status).unwrap_or(StatusCode::OK);
     let mut response = Response::new(Body::from(response.body));

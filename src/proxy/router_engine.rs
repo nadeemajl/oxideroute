@@ -235,6 +235,11 @@ fn sample_target(targets: &[WeightedTarget]) -> Option<&WeightedTarget> {
     targets.last()
 }
 
+/// Name of the first rule that matches, for `oxide dry-run` diagnostics.
+pub fn matched_rule_name<'a>(config: &'a RouterConfig, request: &ProxyRequest) -> Option<&'a str> {
+    matching_rule(config, request).map(|rule| rule.name.as_str())
+}
+
 fn matching_rule<'a>(
     config: &'a RouterConfig,
     request: &ProxyRequest,

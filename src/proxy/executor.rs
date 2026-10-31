@@ -22,6 +22,7 @@ use crate::providers::{NonStreamResponse, SseByteStream};
 use crate::proxy::inspector::ProxyRequest;
 use crate::proxy::router_engine::Resolution;
 use crate::state::{now_ms, AppState};
+use crate::telemetry::metrics;
 
 /// A successfully started stream.
 pub struct StreamDispatch {
@@ -31,6 +32,8 @@ pub struct StreamDispatch {
     pub stream: SseByteStream,
     /// `provider/model` that answered.
     pub upstream: String,
+    /// Provider config key that answered.
+    pub provider: String,
     /// Observed time-to-first-frame.
     pub ttft: Duration,
 }
@@ -41,6 +44,8 @@ pub struct JsonDispatch {
     pub response: NonStreamResponse,
     /// `provider/model` that answered.
     pub upstream: String,
+    /// Provider config key that answered.
+    pub provider: String,
 }
 
 /// Dispatches a streaming request across candidates until one starts.
@@ -61,12 +66,13 @@ pub async fn dispatch_stream(
 
     let mut attempts: Vec<AttemptRecord> = Vec::new();
 
-    for candidate in &resolution.candidates {
+    for (index, candidate) in resolution.candidates.iter().enumerate() {
         let reference = candidate.reference();
         let health = state.health_for(&reference);
 
         // A tripped breaker is skipped for free rather than costing a timeout.
         if !health.is_healthy(now_ms()) {
+            metrics::record_request(&candidate.provider, &candidate.model, "circuit_open");
             attempts.push(AttemptRecord::new(reference, "circuit_breaker_open", 0));
             continue;
         }
@@ -93,10 +99,13 @@ pub async fn dispatch_stream(
             Ok(Ok((first_chunk, stream))) => {
                 let ttft = started.elapsed();
                 health.record_success(ttft);
+                metrics::record_ttft(&candidate.provider, &candidate.model, ttft.as_secs_f64());
+                metrics::record_request(&candidate.provider, &candidate.model, "success");
                 return Ok(StreamDispatch {
                     first_chunk,
                     stream,
                     upstream: reference,
+                    provider: candidate.provider.clone(),
                     ttft,
                 });
             }
@@ -106,24 +115,23 @@ pub async fn dispatch_stream(
                 if !is_retryable(&error, &resolution.retry_on_status) {
                     // A 400-class error means the request itself is wrong; another
                     // upstream would fail the same way.
+                    metrics::record_request(&candidate.provider, &candidate.model, "error");
                     return Err(error);
                 }
 
+                let reason = reason_for(&error);
                 health.record_failure(threshold, cooldown);
-                attempts.push(AttemptRecord::new(
-                    reference,
-                    reason_for(&error),
-                    elapsed_ms,
-                ));
+                metrics::record_request(&candidate.provider, &candidate.model, "error");
+                record_fallback_if_any(&resolution.candidates, index, &candidate.provider, &reason);
+                attempts.push(AttemptRecord::new(reference, reason, elapsed_ms));
             }
             Err(_) => {
                 let elapsed_ms = started.elapsed().as_millis() as u64;
+                let reason = format!("ttft_timeout_exceeded ({ttft_budget_ms}ms)");
                 health.record_failure(threshold, cooldown);
-                attempts.push(AttemptRecord::new(
-                    reference,
-                    format!("ttft_timeout_exceeded ({ttft_budget_ms}ms)"),
-                    elapsed_ms,
-                ));
+                metrics::record_request(&candidate.provider, &candidate.model, "error");
+                record_fallback_if_any(&resolution.candidates, index, &candidate.provider, &reason);
+                attempts.push(AttemptRecord::new(reference, reason, elapsed_ms));
             }
         }
     }
@@ -155,11 +163,12 @@ pub async fn dispatch_json(
 
     let mut attempts: Vec<AttemptRecord> = Vec::new();
 
-    for candidate in &resolution.candidates {
+    for (index, candidate) in resolution.candidates.iter().enumerate() {
         let reference = candidate.reference();
         let health = state.health_for(&reference);
 
         if !health.is_healthy(now_ms()) {
+            metrics::record_request(&candidate.provider, &candidate.model, "circuit_open");
             attempts.push(AttemptRecord::new(reference, "circuit_breaker_open", 0));
             continue;
         }
@@ -173,24 +182,26 @@ pub async fn dispatch_json(
         match provider.execute_json(&candidate.model, request).await {
             Ok(response) => {
                 health.record_healthy();
+                metrics::record_request(&candidate.provider, &candidate.model, "success");
                 return Ok(JsonDispatch {
                     response,
                     upstream: reference,
+                    provider: candidate.provider.clone(),
                 });
             }
             Err(error) => {
                 let elapsed_ms = started.elapsed().as_millis() as u64;
 
                 if !is_retryable(&error, &resolution.retry_on_status) {
+                    metrics::record_request(&candidate.provider, &candidate.model, "error");
                     return Err(error);
                 }
 
+                let reason = reason_for(&error);
                 health.record_failure(threshold, cooldown);
-                attempts.push(AttemptRecord::new(
-                    reference,
-                    reason_for(&error),
-                    elapsed_ms,
-                ));
+                metrics::record_request(&candidate.provider, &candidate.model, "error");
+                record_fallback_if_any(&resolution.candidates, index, &candidate.provider, &reason);
+                attempts.push(AttemptRecord::new(reference, reason, elapsed_ms));
             }
         }
     }
@@ -212,6 +223,18 @@ fn is_retryable(error: &RouterError, retry_on_status: &[u16]) -> bool {
         RouterError::Transport { .. } | RouterError::TtftTimeout { .. } => true,
         RouterError::CircuitBreakerOpen { .. } => true,
         _ => false,
+    }
+}
+
+/// Emits the failover counter when another candidate remains to be tried.
+fn record_fallback_if_any(
+    candidates: &[crate::proxy::router_engine::Candidate],
+    index: usize,
+    from_provider: &str,
+    reason: &str,
+) {
+    if let Some(next) = candidates.get(index + 1) {
+        metrics::record_fallback(from_provider, &next.provider, reason);
     }
 }
 

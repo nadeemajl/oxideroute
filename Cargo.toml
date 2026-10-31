@@ -41,6 +41,10 @@ toml = "0.8"
 schemars = "0.8"
 regex = "1.11"
 
+# AWS SigV4 signing for the Bedrock adapter
+hmac = "0.12"
+sha2 = "0.10"
+
 # Lock-Free Concurrency, Caching & Rate Limiting
 arc-swap = "1.7"
 dashmap = "6.1"
@@ -56,8 +60,18 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 metrics = "0.23"
 metrics-exporter-prometheus = "0.15"
+
+# OpenTelemetry OTLP trace export (enabled when telemetry.otlp_endpoint is set)
+opentelemetry = "0.33"
+opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["trace", "grpc-tonic"] }
+tracing-opentelemetry = "0.34"
 uuid = { version = "1.10", features = ["v4", "fast-rng"] }
 rand = "0.8"
+
+[[bench]]
+name = "latency"
+harness = false
 
 [dev-dependencies]
 tokio-test = "0.4"

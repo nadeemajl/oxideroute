@@ -11,6 +11,7 @@
 //!    `HTTP 200` downstream only once the upstream has proven it will answer.
 
 pub mod anthropic;
+pub mod bedrock;
 pub mod gemini;
 pub mod openai;
 pub(crate) mod sse;
@@ -73,6 +74,23 @@ pub trait LlmProvider: Send + Sync + 'static {
         upstream_model: &str,
         req: &ProxyRequest,
     ) -> Result<NonStreamResponse, RouterError>;
+
+    /// Dispatches an embeddings request.
+    ///
+    /// Defaults to a clear rejection so adapters that cannot embed need not
+    /// implement it.
+    async fn execute_embeddings(
+        &self,
+        _upstream_model: &str,
+        _req: &ProxyRequest,
+    ) -> Result<NonStreamResponse, RouterError> {
+        Err(RouterError::InvalidRequest {
+            message: format!(
+                "provider `{}` does not support /v1/embeddings",
+                self.provider_id()
+            ),
+        })
+    }
 }
 
 /// Builds the shared HTTP/2 client used by every upstream adapter.

@@ -34,6 +34,8 @@ pub struct StreamDispatch {
     pub upstream: String,
     /// Provider config key that answered.
     pub provider: String,
+    /// Upstream model id that answered.
+    pub model: String,
     /// Observed time-to-first-frame.
     pub ttft: Duration,
 }
@@ -46,6 +48,8 @@ pub struct JsonDispatch {
     pub upstream: String,
     /// Provider config key that answered.
     pub provider: String,
+    /// Upstream model id that answered.
+    pub model: String,
 }
 
 /// Dispatches a streaming request across candidates until one starts.
@@ -106,6 +110,7 @@ pub async fn dispatch_stream(
                     stream,
                     upstream: reference,
                     provider: candidate.provider.clone(),
+                    model: candidate.model.clone(),
                     ttft,
                 });
             }
@@ -143,10 +148,14 @@ pub async fn dispatch_stream(
     })
 }
 
-/// Dispatches a non-streaming request across candidates until one succeeds.
-///
-/// There is no first-token gate here: the whole body is buffered anyway, and
-/// the client timeout governs the wait.
+/// Which non-streaming endpoint to call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NonStreamingKind {
+    Completion,
+    Embeddings,
+}
+
+/// Dispatches a non-streaming chat completion across candidates.
 ///
 /// # Errors
 ///
@@ -156,6 +165,48 @@ pub async fn dispatch_json(
     config: &RouterConfig,
     request: &ProxyRequest,
     resolution: &Resolution,
+) -> Result<JsonDispatch, RouterError> {
+    dispatch_non_streaming(
+        state,
+        config,
+        request,
+        resolution,
+        NonStreamingKind::Completion,
+    )
+    .await
+}
+
+/// Dispatches an embeddings request across candidates.
+///
+/// # Errors
+///
+/// Mirrors [`dispatch_stream`].
+pub async fn dispatch_embeddings(
+    state: &AppState,
+    config: &RouterConfig,
+    request: &ProxyRequest,
+    resolution: &Resolution,
+) -> Result<JsonDispatch, RouterError> {
+    dispatch_non_streaming(
+        state,
+        config,
+        request,
+        resolution,
+        NonStreamingKind::Embeddings,
+    )
+    .await
+}
+
+/// Shared fallback loop for buffered (non-streaming) calls.
+///
+/// There is no first-token gate here: the whole body is buffered anyway, and the
+/// client timeout governs the wait.
+async fn dispatch_non_streaming(
+    state: &AppState,
+    config: &RouterConfig,
+    request: &ProxyRequest,
+    resolution: &Resolution,
+    kind: NonStreamingKind,
 ) -> Result<JsonDispatch, RouterError> {
     let breaker = &config.resiliency.circuit_breaker;
     let threshold = breaker.consecutive_failures_threshold;
@@ -179,7 +230,14 @@ pub async fn dispatch_json(
         };
 
         let started = Instant::now();
-        match provider.execute_json(&candidate.model, request).await {
+        let outcome = match kind {
+            NonStreamingKind::Completion => provider.execute_json(&candidate.model, request).await,
+            NonStreamingKind::Embeddings => {
+                provider.execute_embeddings(&candidate.model, request).await
+            }
+        };
+
+        match outcome {
             Ok(response) => {
                 health.record_healthy();
                 metrics::record_request(&candidate.provider, &candidate.model, "success");
@@ -187,6 +245,7 @@ pub async fn dispatch_json(
                     response,
                     upstream: reference,
                     provider: candidate.provider.clone(),
+                    model: candidate.model.clone(),
                 });
             }
             Err(error) => {

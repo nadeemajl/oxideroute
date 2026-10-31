@@ -75,6 +75,11 @@ impl OpenAiProvider {
         format!("{}/chat/completions", self.base_url)
     }
 
+    /// Embeddings endpoint on the configured base URL.
+    pub fn embeddings_endpoint(&self) -> String {
+        format!("{}/embeddings", self.base_url)
+    }
+
     /// `provider/model` label used in errors and attempt records.
     fn label(&self, upstream_model: &str) -> String {
         format!("{}/{}", self.id, upstream_model)
@@ -185,6 +190,47 @@ impl LlmProvider for OpenAiProvider {
         let response = self
             .client
             .post(self.endpoint())
+            .headers(self.request_headers(false)?)
+            .body(body)
+            .send()
+            .await
+            .map_err(|error| self.transport_error(upstream_model, &error))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            return Err(RouterError::UpstreamHttp {
+                provider: self.label(upstream_model),
+                status: status.as_u16(),
+            });
+        }
+
+        let status_code = status.as_u16();
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|error| self.transport_error(upstream_model, &error))?;
+        let (prompt_tokens, completion_tokens) = usage_from(&bytes);
+
+        Ok(NonStreamResponse {
+            status: status_code,
+            body: bytes,
+            prompt_tokens,
+            completion_tokens,
+        })
+    }
+
+    async fn execute_embeddings(
+        &self,
+        upstream_model: &str,
+        req: &ProxyRequest,
+    ) -> Result<NonStreamResponse, RouterError> {
+        // Same pass-through rules as chat: identical model means the original
+        // bytes are forwarded, otherwise only the model literal is spliced.
+        let body = self.build_body(upstream_model, req)?;
+
+        let response = self
+            .client
+            .post(self.embeddings_endpoint())
             .headers(self.request_headers(false)?)
             .body(body)
             .send()

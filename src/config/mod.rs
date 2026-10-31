@@ -104,6 +104,36 @@ pub struct RouterConfig {
     /// Routing rules, evaluated in `priority` order then declaration order.
     #[serde(default)]
     pub rules: Vec<RoutingRule>,
+
+    /// Token pricing, keyed by `provider/model`, used for tenant spend tracking.
+    ///
+    /// Entries are optional: an unpriced upstream costs `0.0`, which makes the
+    /// daily budget inert for it rather than silently guessing a price.
+    #[serde(default)]
+    pub pricing: BTreeMap<String, PricingConfig>,
+}
+
+impl RouterConfig {
+    /// Cost of one exchange, in USD.
+    ///
+    /// Returns `0.0` for upstreams without a `[pricing."provider/model"]`
+    /// entry, so unpriced traffic never trips a budget it cannot be charged for.
+    pub fn cost_usd(
+        &self,
+        provider: &str,
+        model: &str,
+        prompt_tokens: usize,
+        completion_tokens: usize,
+    ) -> f64 {
+        let key = format!("{provider}/{model}");
+        let Some(pricing) = self.pricing.get(&key) else {
+            return 0.0;
+        };
+
+        (prompt_tokens as f64 * pricing.prompt_per_million_usd
+            + completion_tokens as f64 * pricing.completion_per_million_usd)
+            / 1_000_000.0
+    }
 }
 
 impl Default for RouterConfig {
@@ -119,8 +149,19 @@ impl Default for RouterConfig {
             providers: BTreeMap::new(),
             models: BTreeMap::new(),
             rules: Vec::new(),
+            pricing: BTreeMap::new(),
         }
     }
+}
+
+/// USD price per million tokens for one upstream.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PricingConfig {
+    /// USD per million prompt (input) tokens.
+    pub prompt_per_million_usd: f64,
+    /// USD per million completion (output) tokens.
+    pub completion_per_million_usd: f64,
 }
 
 /// Telemetry, logging, and PII handling.
@@ -601,6 +642,27 @@ mod tests {
         let encoded = toml::to_string(&config).expect("config serializes");
         let decoded: RouterConfig = toml::from_str(&encoded).expect("config deserializes");
         assert_eq!(decoded, config);
+    }
+
+    #[test]
+    fn cost_uses_the_pricing_table() {
+        let mut config = RouterConfig::default();
+        config.pricing.insert(
+            "p/m".to_string(),
+            PricingConfig {
+                prompt_per_million_usd: 3.0,
+                completion_per_million_usd: 15.0,
+            },
+        );
+
+        let cost = config.cost_usd("p", "m", 1_000_000, 1_000_000);
+        assert!((cost - 18.0).abs() < 1e-9, "got {cost}");
+    }
+
+    #[test]
+    fn unpriced_upstreams_cost_nothing() {
+        let config = RouterConfig::default();
+        assert_eq!(config.cost_usd("p", "m", 1_000_000, 1_000_000), 0.0);
     }
 
     #[test]

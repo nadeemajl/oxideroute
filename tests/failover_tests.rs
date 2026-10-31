@@ -14,8 +14,8 @@ use axum::body::Body;
 use bytes::Bytes;
 use http::{HeaderMap, Request, StatusCode};
 use oxide_route::config::{
-    CircuitBreakerConfig, ProviderConfig, ProviderKind, RateLimitConfig, RouterConfig,
-    RoutingStrategy, VirtualModelConfig,
+    CircuitBreakerConfig, PricingConfig, ProviderConfig, ProviderKind, RateLimitConfig,
+    RouterConfig, RoutingStrategy, VirtualModelConfig,
 };
 use oxide_route::proxy::build_router;
 use oxide_route::proxy::inspector::inspect_request;
@@ -425,5 +425,56 @@ async fn test_tenant_rpm_and_tpm_rate_limiting() {
             .is_some_and(|message| message.contains("tokens per minute")),
         "expected a TPM rejection, got {}",
         envelope["error"]
+    );
+}
+
+#[tokio::test]
+async fn test_pricing_charges_the_tenant_daily_budget() {
+    let mock = MockServer::start().await;
+    let mut config = base_config(&mock);
+
+    config.rate_limits.insert(
+        "default_tenant".to_string(),
+        RateLimitConfig {
+            match_header: "X-Tenant-ID".to_string(),
+            rpm: 1_000,
+            tpm: 1_000_000,
+            daily_budget_usd: 1_000.0,
+            burst_multiplier: 1.0,
+        },
+    );
+
+    // Deliberately round numbers: $1M per million prompt tokens means one token
+    // costs exactly one dollar, so the assertion is unambiguous.
+    config.pricing.insert(
+        "primary/gpt-4o-json".to_string(),
+        PricingConfig {
+            prompt_per_million_usd: 1_000_000.0,
+            completion_per_million_usd: 0.0,
+        },
+    );
+
+    config.models.insert(
+        "priced".to_string(),
+        priority_model("primary/gpt-4o-json", &[]),
+    );
+
+    let state = Arc::new(AppState::new(config).expect("state builds"));
+    let app = build_router(Arc::clone(&state));
+
+    // Non-streaming, so the mock reports usage (11 prompt tokens).
+    let body = serde_json::json!({
+        "model": "priced",
+        "stream": false,
+        "messages": [{"role": "user", "content": "hi"}],
+    });
+
+    let (status, _) = post_chat(&app, body, Some("acme")).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let spent = state.rate_limiter().spent_usd("acme");
+    assert!(
+        (spent - 11.0).abs() < 0.01,
+        "expected $11 of spend for 11 prompt tokens, got {spent}"
     );
 }

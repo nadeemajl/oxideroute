@@ -24,11 +24,15 @@ use bytes::Bytes;
 use futures_util::StreamExt;
 use http::header::{CACHE_CONTROL, CONTENT_TYPE};
 use http::{HeaderMap, HeaderValue, StatusCode};
+use tracing::Instrument;
 
-use self::executor::{dispatch_json, dispatch_stream, JsonDispatch, StreamDispatch};
-use self::inspector::inspect_request;
+use self::executor::{
+    dispatch_embeddings, dispatch_json, dispatch_stream, JsonDispatch, StreamDispatch,
+};
+use self::inspector::{inspect_request, ProxyRequest};
 use self::ratelimit::resolve_tenant;
-use self::router_engine::resolve_candidates;
+use self::router_engine::{resolve_candidates, Resolution};
+use crate::config::RouterConfig;
 use crate::error::RouterError;
 use crate::state::AppState;
 use crate::telemetry::metrics::{self, Metrics};
@@ -37,6 +41,7 @@ use crate::telemetry::metrics::{self, Metrics};
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/v1/chat/completions", post(chat_completions))
+        .route("/v1/embeddings", post(embeddings))
         .route("/healthz", get(healthz))
         .with_state(state)
 }
@@ -75,28 +80,36 @@ async fn chat_completions(
     }
 }
 
-async fn handle_chat(
-    state: Arc<AppState>,
+async fn embeddings(
+    State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<Response, RouterError> {
-    let request = inspect_request(headers, body)?;
+) -> Response {
+    match handle_embeddings(state, headers, body).await {
+        Ok(response) => response,
+        Err(error) => error.into_response(),
+    }
+}
 
-    // One snapshot for the whole request: a reload cannot change the rules
-    // underneath a dispatch that is already in flight.
+/// Everything a request needs before dispatch, all derived from **one** config
+/// snapshot so a concurrent reload cannot split the decision.
+struct Prepared {
+    request: ProxyRequest,
+    config: Arc<RouterConfig>,
+    tenant: String,
+    resolution: Resolution,
+}
+
+async fn prepare(
+    state: &AppState,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Prepared, RouterError> {
+    let request = inspect_request(headers, body)?;
     let config = state.config();
 
-    let tenant = resolve_tenant(&config, &request.headers);
-    if let Some((tenant_name, limits)) = &tenant {
-        state
-            .rate_limiter()
-            .enforce(tenant_name, limits, request.estimated_prompt_tokens)?;
-    }
-    // Attribute tokens even when no limit block is configured.
-    let tenant_name = tenant
-        .map(|(name, _)| name)
-        .unwrap_or_else(|| "anonymous".to_string());
-
+    // Resolution precedes admission because the daily-budget reservation is
+    // priced from the candidate that will actually serve the request.
     let resolution = resolve_candidates(&config, &request, state.health())?;
 
     if resolution.candidates.is_empty() {
@@ -108,32 +121,154 @@ async fn handle_chat(
         });
     }
 
+    let tenant = resolve_tenant(&config, &request.headers);
+    let tenant_name = tenant
+        .as_ref()
+        .map(|(name, _)| name.clone())
+        .unwrap_or_else(|| "anonymous".to_string());
+
+    if let Some((name, limits)) = &tenant {
+        let estimated_cost = resolution
+            .candidates
+            .first()
+            .map(|candidate| {
+                config.cost_usd(
+                    &candidate.provider,
+                    &candidate.model,
+                    request.estimated_prompt_tokens,
+                    0,
+                )
+            })
+            .unwrap_or(0.0);
+
+        state.rate_limiter().enforce(
+            name,
+            limits,
+            request.estimated_prompt_tokens,
+            estimated_cost,
+        )?;
+    }
+
+    Ok(Prepared {
+        request,
+        config,
+        tenant: tenant_name,
+        resolution,
+    })
+}
+
+async fn handle_chat(
+    state: Arc<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, RouterError> {
+    let Prepared {
+        request,
+        config,
+        tenant,
+        resolution,
+    } = prepare(&state, headers, body).await?;
+
+    let span = tracing::info_span!(
+        "upstream.dispatch",
+        request_id = %request.request_id,
+        model = %request.requested_model,
+        tenant = %tenant,
+        stream = request.is_stream,
+    );
+
     if request.is_stream {
-        let outcome = dispatch_stream(&state, &config, &request, &resolution).await?;
-        // Streaming responses do not report usage, so the estimate is what we
-        // have to bill against.
-        metrics::record_tokens(
-            &tenant_name,
+        let outcome = dispatch_stream(&state, &config, &request, &resolution)
+            .instrument(span)
+            .await?;
+
+        // Streaming responses carry no usage, so only the prompt estimate can be
+        // billed.
+        record_usage(
+            &state,
+            &config,
+            &tenant,
             &outcome.provider,
-            "prompt",
-            request.estimated_prompt_tokens as u64,
+            &outcome.model,
+            request.estimated_prompt_tokens,
+            0,
         );
+
         Ok(sse_response(&request.request_id, outcome))
     } else {
-        let outcome = dispatch_json(&state, &config, &request, &resolution).await?;
-        metrics::record_tokens(
-            &tenant_name,
+        let outcome = dispatch_json(&state, &config, &request, &resolution)
+            .instrument(span)
+            .await?;
+
+        record_usage(
+            &state,
+            &config,
+            &tenant,
             &outcome.provider,
-            "prompt",
-            outcome.response.prompt_tokens as u64,
+            &outcome.model,
+            outcome.response.prompt_tokens,
+            outcome.response.completion_tokens,
         );
-        metrics::record_tokens(
-            &tenant_name,
-            &outcome.provider,
-            "completion",
-            outcome.response.completion_tokens as u64,
-        );
+
         Ok(json_response(&request.request_id, outcome))
+    }
+}
+
+async fn handle_embeddings(
+    state: Arc<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, RouterError> {
+    let Prepared {
+        request,
+        config,
+        tenant,
+        resolution,
+    } = prepare(&state, headers, body).await?;
+
+    let span = tracing::info_span!(
+        "upstream.dispatch",
+        request_id = %request.request_id,
+        model = %request.requested_model,
+        tenant = %tenant,
+        stream = false,
+    );
+
+    let outcome = dispatch_embeddings(&state, &config, &request, &resolution)
+        .instrument(span)
+        .await?;
+
+    record_usage(
+        &state,
+        &config,
+        &tenant,
+        &outcome.provider,
+        &outcome.model,
+        outcome.response.prompt_tokens,
+        0,
+    );
+
+    Ok(json_response(&request.request_id, outcome))
+}
+
+/// Emits token metrics and charges the tenant's daily budget.
+fn record_usage(
+    state: &AppState,
+    config: &RouterConfig,
+    tenant: &str,
+    provider: &str,
+    model: &str,
+    prompt_tokens: usize,
+    completion_tokens: usize,
+) {
+    metrics::record_tokens(tenant, provider, "prompt", prompt_tokens as u64);
+    if completion_tokens > 0 {
+        metrics::record_tokens(tenant, provider, "completion", completion_tokens as u64);
+    }
+
+    let cost = config.cost_usd(provider, model, prompt_tokens, completion_tokens);
+    if cost > 0.0 {
+        state.rate_limiter().record_spend_usd(tenant, cost);
     }
 }
 
@@ -169,6 +304,7 @@ fn json_response(request_id: &str, outcome: JsonDispatch) -> Response {
         response,
         upstream,
         provider: _,
+        model: _,
     } = outcome;
 
     let status = StatusCode::from_u16(response.status).unwrap_or(StatusCode::OK);
@@ -192,9 +328,7 @@ fn insert_if_valid(headers: &mut HeaderMap, name: &'static str, value: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{
-        ProviderConfig, ProviderKind, RouterConfig, RoutingStrategy, VirtualModelConfig,
-    };
+    use crate::config::{ProviderConfig, ProviderKind, RoutingStrategy, VirtualModelConfig};
 
     fn state_with_model() -> Arc<AppState> {
         let mut config = RouterConfig::default();
@@ -265,6 +399,20 @@ mod tests {
         assert!(envelope["error"]["oxide_metadata"]["attempted_upstreams"]
             .as_array()
             .is_some_and(|attempts| !attempts.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn embeddings_unknown_model_is_a_400() {
+        let state = state_with_model();
+        let response = handle_embeddings(
+            state,
+            HeaderMap::new(),
+            Bytes::from(r#"{"model":"nope","input":"hi"}"#.to_string()),
+        )
+        .await
+        .expect_err("unknown model");
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[test]

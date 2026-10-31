@@ -150,7 +150,7 @@ async fn run(cli: Cli) -> Result<(), RouterError> {
 async fn serve(path: PathBuf) -> Result<(), RouterError> {
     // Strict: never start against a half-configured upstream.
     let config = load_config_from_path(&path, InterpolationMode::Strict)?;
-    oxide_route::telemetry::init_tracing(&config.telemetry)?;
+    let telemetry = oxide_route::telemetry::init_tracing(&config.telemetry)?;
 
     let listen = config.listen.clone();
     let drain_ms = config.graceful_shutdown_timeout_ms;
@@ -180,6 +180,7 @@ async fn serve(path: PathBuf) -> Result<(), RouterError> {
             message: format!("server error: {error}"),
         })?;
 
+    telemetry.shutdown();
     tracing::info!("shutdown complete");
     Ok(())
 }

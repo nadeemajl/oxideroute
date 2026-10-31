@@ -31,11 +31,12 @@ pub use config::loader::{
 pub use config::RouterConfig;
 pub use error::{AttemptRecord, ConfigError, OxideMetadata, RouterError};
 pub use providers::anthropic::AnthropicProvider;
+pub use providers::bedrock::BedrockProvider;
 pub use providers::gemini::GeminiProvider;
 pub use providers::openai::OpenAiProvider;
 pub use providers::{LlmProvider, NonStreamResponse, SseByteStream};
 pub use proxy::build_router;
-pub use proxy::executor::{dispatch_json, dispatch_stream};
+pub use proxy::executor::{dispatch_embeddings, dispatch_json, dispatch_stream};
 pub use proxy::inspector::{inspect_request, ProxyRequest};
 pub use proxy::ratelimit::TenantRateLimiter;
 pub use proxy::router_engine::{resolve_candidates, Candidate, Resolution};

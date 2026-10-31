@@ -63,6 +63,7 @@ impl MockServer {
         let app = Router::new()
             .route("/v1/chat/completions", post(handle))
             .route("/v1/messages", post(handle))
+            .route("/v1/embeddings", post(handle))
             .route("/v1beta/models/:model", post(handle))
             .with_state(Arc::clone(&state));
 
@@ -192,7 +193,9 @@ async fn handle(
         }
         _ => {
             let path = uri.path();
-            if path.starts_with("/v1beta/") {
+            if path == "/v1/embeddings" {
+                embeddings_response()
+            } else if path.starts_with("/v1beta/") {
                 gemini_sse_response()
             } else if path == "/v1/messages" {
                 anthropic_sse_response()
@@ -209,6 +212,19 @@ async fn handle(
             }
         }
     }
+}
+
+/// OpenAI-shaped embeddings payload.
+fn embeddings_response() -> Response {
+    json_response(
+        StatusCode::OK,
+        serde_json::json!({
+            "object": "list",
+            "data": [{"object": "embedding", "index": 0, "embedding": [0.1, 0.2, 0.3]}],
+            "model": "text-embedding-3-small",
+            "usage": {"prompt_tokens": 6, "total_tokens": 6}
+        }),
+    )
 }
 
 /// Anthropic-shaped SSE, including keep-alives and non-content blocks.

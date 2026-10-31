@@ -159,6 +159,7 @@ pub fn validate(config: &RouterConfig) -> Result<(), ConfigError> {
     validate_providers(config)?;
     validate_models(config)?;
     validate_rules(config)?;
+    validate_pricing(config)?;
     detect_circular_routing(config)?;
     Ok(())
 }
@@ -567,6 +568,49 @@ fn validate_condition(
                     format!("`{pattern}` is not a valid regex ({error})"),
                 )
             })?;
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_pricing(config: &RouterConfig) -> Result<(), ConfigError> {
+    for (reference, pricing) in &config.pricing {
+        let (provider, model) = reference.split_once('/').ok_or_else(|| {
+            invalid(
+                format!("pricing.{reference}"),
+                "pricing keys must be of the form `provider/model`",
+            )
+        })?;
+
+        if provider.is_empty() || model.is_empty() {
+            return Err(invalid(
+                format!("pricing.{reference}"),
+                "pricing keys must be of the form `provider/model`",
+            ));
+        }
+
+        if !config.providers.contains_key(provider) {
+            return Err(ConfigError::UndefinedProvider {
+                reference: reference.clone(),
+                provider: provider.to_string(),
+                context: format!("pricing.{reference}"),
+            });
+        }
+
+        for (name, value) in [
+            ("prompt_per_million_usd", pricing.prompt_per_million_usd),
+            (
+                "completion_per_million_usd",
+                pricing.completion_per_million_usd,
+            ),
+        ] {
+            if !value.is_finite() || value < 0.0 {
+                return Err(invalid(
+                    format!("pricing.{reference}.{name}"),
+                    "must be a finite, non-negative USD amount",
+                ));
+            }
         }
     }
 
@@ -1237,6 +1281,36 @@ api_key = "sk"
             ConfigError::Io { path, .. } => assert!(path.ends_with("does-not-exist.toml")),
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    #[test]
+    fn pricing_must_reference_a_defined_provider() {
+        let error = load_with_extra(
+            "\n[pricing.\"ghost/model\"]\nprompt_per_million_usd = 1.0\ncompletion_per_million_usd = 2.0\n",
+        )
+        .expect_err("pricing for an unknown provider must be rejected");
+
+        assert!(matches!(error, ConfigError::UndefinedProvider { .. }));
+    }
+
+    #[test]
+    fn pricing_must_be_non_negative() {
+        let error = load_with_extra(
+            "\n[pricing.\"openai/gpt-4o\"]\nprompt_per_million_usd = -1.0\ncompletion_per_million_usd = 2.0\n",
+        )
+        .expect_err("negative prices must be rejected");
+
+        assert!(matches!(error, ConfigError::InvalidValue { .. }));
+    }
+
+    #[test]
+    fn pricing_requires_a_provider_model_key() {
+        let error = load_with_extra(
+            "\n[pricing.\"bare-model\"]\nprompt_per_million_usd = 1.0\ncompletion_per_million_usd = 2.0\n",
+        )
+        .expect_err("pricing keys need a provider segment");
+
+        assert!(matches!(error, ConfigError::InvalidValue { .. }));
     }
 
     #[test]

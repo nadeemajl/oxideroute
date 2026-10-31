@@ -6,15 +6,17 @@
 //!
 //! # OTLP
 //!
-//! `telemetry.otlp_endpoint` is accepted by the config but **not** exported:
-//! the dependency manifest in `docs/ARCHITECTURE.md` contains no OpenTelemetry
-//! crates, so adding export would be a new dependency decision rather than an
-//! implementation detail. Startup warns when the field is set.
+//! When `telemetry.otlp_endpoint` is set, spans are exported over OTLP/gRPC.
+//! The exporter is batched, so [`TelemetryGuard`] must be kept alive for the
+//! process lifetime and shut down on exit to flush pending spans.
 
 pub mod metrics;
 
 use std::fmt;
 
+use opentelemetry::trace::TracerProvider as _;
+use opentelemetry_otlp::{SpanExporter, WithExportConfig};
+use opentelemetry_sdk::trace::SdkTracerProvider;
 use regex::Regex;
 use tracing::{Event, Subscriber};
 use tracing_subscriber::fmt::format::{Format, Full};
@@ -114,13 +116,29 @@ where
     }
 }
 
+/// Keeps the OTLP exporter alive and flushes it on shutdown.
+pub struct TelemetryGuard {
+    provider: Option<SdkTracerProvider>,
+}
+
+impl TelemetryGuard {
+    /// Flushes and stops the trace exporter, if one was installed.
+    pub fn shutdown(self) {
+        if let Some(provider) = self.provider {
+            if let Err(error) = provider.shutdown() {
+                tracing::warn!(%error, "failed to shut down the OTLP trace exporter");
+            }
+        }
+    }
+}
+
 /// Installs the tracing subscriber used by the `serve` command.
 ///
 /// # Errors
 ///
-/// Fails if `RUST_LOG` is malformed, the redaction patterns do not compile, or
-/// another subscriber is already installed.
-pub fn init_tracing(config: &TelemetryConfig) -> Result<(), RouterError> {
+/// Fails if `RUST_LOG` is malformed, the redaction patterns do not compile, the
+/// OTLP exporter cannot be built, or another subscriber is already installed.
+pub fn init_tracing(config: &TelemetryConfig) -> Result<TelemetryGuard, RouterError> {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let redactor = PiiRedactor::new()?;
 
@@ -131,20 +149,42 @@ pub fn init_tracing(config: &TelemetryConfig) -> Result<(), RouterError> {
             redactor,
         });
 
+    let (otel_layer, provider) = match config
+        .otlp_endpoint
+        .as_deref()
+        .map(str::trim)
+        .filter(|endpoint| !endpoint.is_empty())
+    {
+        Some(endpoint) => {
+            let exporter = SpanExporter::builder()
+                .with_tonic()
+                .with_endpoint(endpoint)
+                .build()
+                .map_err(|error| RouterError::Internal {
+                    message: format!("failed to build the OTLP exporter: {error}"),
+                })?;
+
+            let provider = SdkTracerProvider::builder()
+                .with_batch_exporter(exporter)
+                .build();
+            let tracer = provider.tracer("oxide");
+
+            (
+                Some(tracing_opentelemetry::layer().with_tracer(tracer)),
+                Some(provider),
+            )
+        }
+        None => (None, None),
+    };
+
     tracing_subscriber::registry()
         .with(filter)
         .with(fmt_layer)
+        .with(otel_layer)
         .try_init()
         .map_err(|error| RouterError::Internal {
             message: format!("failed to initialise tracing: {error}"),
         })?;
-
-    if config.otlp_endpoint.is_some() {
-        tracing::warn!(
-            "telemetry.otlp_endpoint is set but OTLP export is not compiled in; \
-             traces remain local to this process"
-        );
-    }
 
     if config.log_payloads {
         tracing::warn!(
@@ -152,7 +192,7 @@ pub fn init_tracing(config: &TelemetryConfig) -> Result<(), RouterError> {
         );
     }
 
-    Ok(())
+    Ok(TelemetryGuard { provider })
 }
 
 #[cfg(test)]
@@ -275,6 +315,16 @@ mod tests {
         let mut sink = sink;
         assert_eq!(sink.write(b"ok").expect("write"), 2);
         sink.flush().expect("flush");
+    }
+
+    #[tokio::test]
+    async fn otlp_exporter_accepts_a_grpc_endpoint() {
+        let exporter = SpanExporter::builder()
+            .with_tonic()
+            .with_endpoint("http://127.0.0.1:4317")
+            .build();
+
+        assert!(exporter.is_ok(), "exporter should build offline");
     }
 
     #[test]

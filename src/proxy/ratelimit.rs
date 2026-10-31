@@ -137,7 +137,6 @@ impl TokenBucket {
 struct TenantBuckets {
     rpm: RpmLimiter,
     tpm: TokenBucket,
-    spent_micros: AtomicU64,
 }
 
 impl TenantBuckets {
@@ -153,7 +152,6 @@ impl TenantBuckets {
             // construction and cannot panic here.
             rpm: RateLimiter::direct(quota),
             tpm: TokenBucket::new(limits.tpm, limits.burst_multiplier),
-            spent_micros: AtomicU64::new(0),
         }
     }
 }
@@ -162,6 +160,9 @@ impl TenantBuckets {
 #[derive(Debug, Default)]
 pub struct TenantRateLimiter {
     tenants: DashMap<String, TenantBuckets>,
+    /// Spend is tracked independently of quota buckets: a tenant can be charged
+    /// (or have a budget enforced) before any limiter row exists for it.
+    spend: DashMap<String, AtomicU64>,
 }
 
 impl TenantRateLimiter {
@@ -171,6 +172,8 @@ impl TenantRateLimiter {
     }
 
     /// Drops all bucket state. Called on config reload, since quotas may change.
+    ///
+    /// Spend survives: resetting quotas must not forgive a tenant's daily budget.
     pub fn reset(&self) {
         self.tenants.clear();
     }
@@ -188,6 +191,7 @@ impl TenantRateLimiter {
         tenant: &str,
         limits: &RateLimitConfig,
         estimated_tokens: usize,
+        estimated_cost_usd: f64,
     ) -> Result<(), RouterError> {
         let entry = self
             .tenants
@@ -212,8 +216,12 @@ impl TenantRateLimiter {
         }
 
         let budget = usd_to_micros(limits.daily_budget_usd);
-        let spent = entry.spent_micros.load(Ordering::Relaxed);
-        if spent >= budget {
+        let spent = self.spent_micros(tenant);
+        // Admission reserves the estimate so a burst cannot overrun the budget
+        // by one request's worth before any spend is recorded. An already
+        // exhausted budget denies even a zero-cost request, otherwise unpriced
+        // traffic would sail past a spent budget forever.
+        if spent >= budget || spent.saturating_add(usd_to_micros(estimated_cost_usd)) > budget {
             return Err(RouterError::RateLimitExceeded {
                 tenant: tenant.to_string(),
                 detail: format!(
@@ -227,21 +235,31 @@ impl TenantRateLimiter {
         Ok(())
     }
 
-    /// Records realised spend for a tenant that already has bucket state.
+    /// Records realised spend for a tenant, whether or not it has limits.
     pub fn record_spend_usd(&self, tenant: &str, usd: f64) {
-        if let Some(buckets) = self.tenants.get(tenant) {
-            buckets
-                .spent_micros
-                .fetch_add(usd_to_micros(usd), Ordering::Relaxed);
+        let micros = usd_to_micros(usd);
+        if micros == 0 {
+            return;
         }
+
+        let entry = self
+            .spend
+            .entry(tenant.to_string())
+            .or_insert_with(|| AtomicU64::new(0));
+
+        entry.fetch_add(micros, Ordering::Relaxed);
     }
 
     /// Spend observed so far for a tenant, in US dollars.
     pub fn spent_usd(&self, tenant: &str) -> f64 {
-        self.tenants
+        self.spent_micros(tenant) as f64 / MICROS_PER_USD
+    }
+
+    fn spent_micros(&self, tenant: &str) -> u64 {
+        self.spend
             .get(tenant)
-            .map(|buckets| buckets.spent_micros.load(Ordering::Relaxed) as f64 / MICROS_PER_USD)
-            .unwrap_or(0.0)
+            .map(|entry| entry.load(Ordering::Relaxed))
+            .unwrap_or(0)
     }
 }
 
@@ -301,11 +319,11 @@ mod tests {
         let limits = limits(3, 1_000_000);
 
         for _ in 0..3 {
-            assert!(limiter.enforce("acme", &limits, 1).is_ok());
+            assert!(limiter.enforce("acme", &limits, 1, 0.0).is_ok());
         }
 
         let error = limiter
-            .enforce("acme", &limits, 1)
+            .enforce("acme", &limits, 1, 0.0)
             .expect_err("fourth request exceeds rpm");
         assert!(error.to_string().contains("requests per minute"));
     }
@@ -316,7 +334,7 @@ mod tests {
         let limits = limits(1_000, 100);
 
         let error = limiter
-            .enforce("acme", &limits, 500)
+            .enforce("acme", &limits, 500, 0.0)
             .expect_err("500 tokens exceeds a 100 token budget");
         assert!(error.to_string().contains("tokens per minute"));
     }
@@ -326,10 +344,10 @@ mod tests {
         let limiter = TenantRateLimiter::new();
         let limits = limits(1_000, 100);
 
-        assert!(limiter.enforce("acme", &limits, 60).is_ok());
+        assert!(limiter.enforce("acme", &limits, 60, 0.0).is_ok());
         // The bucket refills at ~1.6 tokens/ms, so this is effectively immediate.
         let error = limiter
-            .enforce("acme", &limits, 60)
+            .enforce("acme", &limits, 60, 0.0)
             .expect_err("second request overdraws the bucket");
         assert!(error.to_string().contains("tokens per minute"));
     }
@@ -339,9 +357,9 @@ mod tests {
         let limiter = TenantRateLimiter::new();
         let limits = limits(1, 100);
 
-        assert!(limiter.enforce("acme", &limits, 1).is_ok());
-        assert!(limiter.enforce("globex", &limits, 1).is_ok());
-        assert!(limiter.enforce("acme", &limits, 1).is_err());
+        assert!(limiter.enforce("acme", &limits, 1, 0.0).is_ok());
+        assert!(limiter.enforce("globex", &limits, 1, 0.0).is_ok());
+        assert!(limiter.enforce("acme", &limits, 1, 0.0).is_err());
     }
 
     #[test]
@@ -350,12 +368,12 @@ mod tests {
         let mut limits = limits(1_000, 1_000_000);
         limits.daily_budget_usd = 1.0;
 
-        assert!(limiter.enforce("acme", &limits, 1).is_ok());
+        assert!(limiter.enforce("acme", &limits, 1, 0.0).is_ok());
         limiter.record_spend_usd("acme", 1.0);
         assert!((limiter.spent_usd("acme") - 1.0).abs() < 1e-9);
 
         let error = limiter
-            .enforce("acme", &limits, 1)
+            .enforce("acme", &limits, 1, 0.0)
             .expect_err("budget is spent");
         assert!(error.to_string().contains("daily budget"));
     }
@@ -365,12 +383,12 @@ mod tests {
         let limiter = TenantRateLimiter::new();
         let limits = limits(1, 100);
 
-        assert!(limiter.enforce("acme", &limits, 1).is_ok());
-        assert!(limiter.enforce("acme", &limits, 1).is_err());
+        assert!(limiter.enforce("acme", &limits, 1, 0.0).is_ok());
+        assert!(limiter.enforce("acme", &limits, 1, 0.0).is_err());
 
         limiter.reset();
 
-        assert!(limiter.enforce("acme", &limits, 1).is_ok());
+        assert!(limiter.enforce("acme", &limits, 1, 0.0).is_ok());
     }
 
     #[test]

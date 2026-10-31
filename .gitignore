@@ -1,0 +1,23 @@
+# Rust build artifacts
+/target
+**/*.rs.bk
+*.pdb
+
+# Generated schema (cargo run -- schema > oxide.schema.json)
+/oxide.schema.json
+
+# Local environment / secrets
+.env
+.env.*
+!.env.example
+
+# Test & benchmark output
+/criterion
+*.profraw
+*.lcov
+
+# Editor / OS noise
+.idea/
+.vscode/
+*.swp
+.DS_Store

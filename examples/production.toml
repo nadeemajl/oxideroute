@@ -1,0 +1,75 @@
+#:schema https://schema.oxideroute.dev/v1/oxide.schema.json
+listen = "0.0.0.0:8080"
+admin_listen = "127.0.0.1:9090"
+graceful_shutdown_timeout_ms = 30000
+
+[telemetry]
+prometheus_endpoint = "/metrics"
+otlp_endpoint = "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4317}"
+redact_pii = true
+log_payloads = false
+
+[cache]
+enabled = true
+backend = "memory"
+max_capacity_mb = 512
+ttl_seconds = 3600
+
+[resiliency.circuit_breaker]
+consecutive_failures_threshold = 5
+error_rate_threshold_pct = 50.0
+window_seconds = 30
+cooldown_seconds = 15
+active_probe_interval_seconds = 10
+
+[rate_limits.default_tenant]
+match_header = "X-Tenant-ID"
+rpm = 600
+tpm = 250000
+daily_budget_usd = 50.00
+burst_multiplier = 1.5
+
+[providers.openai_us]
+type = "openai"
+api_key = "${OPENAI_API_KEY}"
+timeout_ms = 60000
+ttft_timeout_ms = 2500
+
+[providers.anthropic_prod]
+type = "anthropic"
+api_key = "${ANTHROPIC_API_KEY}"
+ttft_timeout_ms = 3000
+
+[providers.gemini_vertex]
+type = "gemini"
+api_key = "${GEMINI_API_KEY}"
+ttft_timeout_ms = 4000
+
+[providers.local_ollama]
+type = "openai_compatible"
+base_url = "http://127.0.0.1:11434/v1"
+ttft_timeout_ms = 1500
+
+[models."smart-router"]
+strategy = "latency_ewma"
+targets = [
+  { upstream = "openai_us/gpt-4o", weight = 70 },
+  { upstream = "anthropic_prod/claude-3-7-sonnet-latest", weight = 30 }
+]
+fallbacks = ["gemini_vertex/gemini-2.5-pro", "local_ollama/qwen2.5-coder:32b"]
+retry_on_status = [429, 500, 502, 503, 504, 529]
+
+[[rules]]
+name = "long-context-to-gemini"
+condition = { min_estimated_tokens = 32000 }
+route_to = "gemini_vertex/gemini-2.5-pro"
+
+[[rules]]
+name = "privacy-sensitive-local"
+condition = { header_matches = { "X-Data-Classification" = "confidential" } }
+route_to = "local_ollama/qwen2.5-coder:32b"
+
+[[rules]]
+name = "cost-aware-complexity-tiering"
+condition = { model = "auto", complexity_score_below = 0.35 }
+route_to = "openai_us/gpt-4o-mini"

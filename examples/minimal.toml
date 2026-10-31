@@ -1,0 +1,10 @@
+#:schema https://schema.oxideroute.dev/v1/oxide.schema.json
+listen = "0.0.0.0:8080"
+
+[providers]
+openai = { type = "openai", api_key = "${OPENAI_API_KEY}" }
+anthropic = { type = "anthropic", api_key = "${ANTHROPIC_API_KEY}" }
+
+[models."gpt-4o"]
+primary = "openai/gpt-4o"
+fallbacks = ["anthropic/claude-3-7-sonnet-latest"]

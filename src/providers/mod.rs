@@ -16,6 +16,7 @@ pub mod openai;
 pub(crate) mod sse;
 
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -25,6 +26,9 @@ use futures_util::StreamExt;
 
 use crate::error::RouterError;
 use crate::proxy::inspector::ProxyRequest;
+
+/// Upper bound on connection establishment, regardless of `timeout_ms`.
+pub const DEFAULT_CONNECT_TIMEOUT_MS: u64 = 10_000;
 
 /// A boxed stream of SSE bytes, already normalised to OpenAI framing.
 ///
@@ -76,12 +80,20 @@ pub trait LlmProvider: Send + Sync + 'static {
 /// Returns `Err` rather than panicking: `Client::build` fails when the TLS
 /// backend cannot be initialised, and the request hot path must never panic.
 ///
-/// # Note
+/// # Timeouts
 ///
-/// `timeout_ms` is applied to the *whole* exchange, body included, so it also
-/// bounds how long a single SSE stream may run. Providers that serve long
-/// streams must raise their configured `timeout_ms` accordingly.
+/// Deliberately **no** total request timeout. `ClientBuilder::timeout` bounds
+/// the entire exchange including the body, which would truncate a long SSE
+/// stream mid-flight. Instead:
+///
+/// * `connect_timeout` bounds connection establishment (capped at 10s so a
+///   misconfigured `timeout_ms` cannot stall a dial for a minute).
+/// * `read_timeout` bounds the gap between successive reads — an idle timeout,
+///   so a stalled stream fails fast without capping total stream duration.
+/// * The pre-first-token watchdog in `proxy::executor` bounds time-to-first-byte.
 pub fn build_upstream_http_client(timeout_ms: u64) -> Result<reqwest::Client, RouterError> {
+    let connect_timeout = Duration::from_millis(timeout_ms.clamp(1, DEFAULT_CONNECT_TIMEOUT_MS));
+
     reqwest::Client::builder()
         .use_rustls_tls()
         .http2_keep_alive_interval(Duration::from_secs(15))
@@ -90,11 +102,43 @@ pub fn build_upstream_http_client(timeout_ms: u64) -> Result<reqwest::Client, Ro
         .http2_adaptive_window(true)
         .pool_max_idle_per_host(128)
         .tcp_nodelay(true)
-        .timeout(Duration::from_millis(timeout_ms))
+        .connect_timeout(connect_timeout)
+        .read_timeout(Duration::from_millis(timeout_ms.max(1)))
         .build()
         .map_err(|error| RouterError::Internal {
             message: format!("failed to build upstream HTTP client: {error}"),
         })
+}
+
+/// Constructs the adapter for a configured provider.
+///
+/// # Errors
+///
+/// Returns an error for provider kinds without an adapter yet, and propagates
+/// client-construction failures.
+pub fn build_provider(
+    id: &str,
+    config: &crate::config::ProviderConfig,
+) -> Result<Arc<dyn LlmProvider>, RouterError> {
+    use crate::config::ProviderKind;
+
+    let provider: Arc<dyn LlmProvider> = match config.kind {
+        ProviderKind::Openai | ProviderKind::OpenaiCompatible => {
+            Arc::new(openai::OpenAiProvider::new(id, config)?)
+        }
+        ProviderKind::Anthropic => Arc::new(anthropic::AnthropicProvider::new(id, config)?),
+        ProviderKind::Gemini => Arc::new(gemini::GeminiProvider::new(id, config)?),
+        ProviderKind::Bedrock => {
+            return Err(RouterError::Config(
+                crate::error::ConfigError::InvalidValue {
+                    field: format!("providers.{id}.type"),
+                    detail: "the Bedrock adapter is not implemented yet".to_string(),
+                },
+            ))
+        }
+    };
+
+    Ok(provider)
 }
 
 /// Pulls from `stream` until a non-empty chunk arrives.

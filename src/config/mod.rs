@@ -16,6 +16,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub mod loader;
+pub mod watcher;
 
 /// Address the public ingress binds to when unspecified.
 pub const DEFAULT_LISTEN: &str = "0.0.0.0:8080";

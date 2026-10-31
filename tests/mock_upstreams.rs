@@ -172,6 +172,24 @@ async fn handle(
             (Duration::from_millis(20), data_frame("Hello")),
             (Duration::ZERO, Bytes::from_static(b"data: [DONE]\n\n")),
         ]),
+        // A deliberately slow first token, for EWMA ordering assertions.
+        "gpt-4o-slow" => sse_response(vec![
+            (Duration::from_millis(120), data_frame("Hello")),
+            (Duration::ZERO, Bytes::from_static(b"data: [DONE]\n\n")),
+        ]),
+        // Ten evenly spaced chunks over ~500ms, for the hot-reload test.
+        "gpt-4o-slow-stream" => {
+            let mut chunks: Vec<(Duration, Bytes)> = (0..10)
+                .map(|index| {
+                    (
+                        Duration::from_millis(50),
+                        data_frame(&format!("chunk{index} ")),
+                    )
+                })
+                .collect();
+            chunks.push((Duration::ZERO, Bytes::from_static(b"data: [DONE]\n\n")));
+            sse_response(chunks)
+        }
         _ => {
             let path = uri.path();
             if path.starts_with("/v1beta/") {

@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="OxideRoute: a single-binary LLM router and API gateway in Rust. One OpenAI-compatible API in front of OpenAI, Anthropic, Gemini, Bedrock and local models.">
+<title>OxideRoute — one-page overview</title>
+<style>
+  :root {
+    --ink: #1e1e1e;
+    --muted: #495057;
+    --faint: #6c757d;
+    --line: #dee2e6;
+    --accent: #1971c2;
+    --bg: #ffffff;
+    --panel: #f8f9fa;
+    --blue: #e7f5ff;
+    --green: #ebfbee;
+    --amber: #fff9db;
+    --red: #fff5f5;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+  }
+
+  .page {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 40px 32px 56px;
+  }
+
+  /* ---------------------------------------------------------------- header */
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+
+  .mark {
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    background: var(--ink);
+    color: #fff;
+    font-weight: 700;
+    font-size: 19px;
+    display: grid;
+    place-items: center;
+    letter-spacing: -0.5px;
+  }
+
+  .brand-name {
+    font-size: 17px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+
+  .version {
+    font-size: 12px;
+    color: var(--faint);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 2px 9px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  h1 {
+    font-size: 38px;
+    line-height: 1.14;
+    letter-spacing: -0.025em;
+    margin: 0 0 12px;
+    max-width: 27ch;
+  }
+
+  h1 em {
+    font-style: normal;
+    color: var(--accent);
+  }
+
+  .lede {
+    font-size: 17px;
+    color: var(--muted);
+    max-width: 68ch;
+    margin: 0 0 22px;
+  }
+
+  /* ------------------------------------------------------------- stat strip */
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 34px;
+  }
+
+  .stat {
+    background: var(--panel);
+    padding: 14px 16px;
+  }
+
+  .stat b {
+    display: block;
+    font-size: 22px;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .stat span {
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+
+  /* ---------------------------------------------------------------- section */
+
+  section { margin-bottom: 34px; }
+
+  h2 {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--faint);
+    margin: 0 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  figure {
+    margin: 0;
+  }
+
+  figure img {
+    width: 100%;
+    height: auto;
+    display: block;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+
+  figcaption {
+    font-size: 13px;
+    color: var(--faint);
+    margin-top: 8px;
+  }
+
+  /* ----------------------------------------------------------------- steps */
+
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px 26px;
+    counter-reset: step;
+  }
+
+  .step {
+    display: grid;
+    grid-template-columns: 26px 1fr;
+    gap: 10px;
+    align-items: start;
+  }
+
+  .step::before {
+    counter-increment: step;
+    content: counter(step);
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--blue);
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 700;
+    display: grid;
+    place-items: center;
+    margin-top: 1px;
+  }
+
+  .step h3 {
+    font-size: 14.5px;
+    margin: 0 0 2px;
+    letter-spacing: -0.005em;
+  }
+
+  .step p {
+    font-size: 13.5px;
+    color: var(--muted);
+    margin: 0;
+  }
+
+  code, pre {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+                 "Liberation Mono", monospace;
+    font-size: 13px;
+  }
+
+  p code, li code, td code {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0.5px 4px;
+    white-space: nowrap;
+  }
+
+  /* ---------------------------------------------------------------- cards */
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+
+  .card {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 15px 16px 16px;
+    background: #fff;
+  }
+
+  .card h3 {
+    font-size: 14.5px;
+    margin: 0 0 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .card h3::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    background: var(--accent);
+    flex: none;
+  }
+
+  .card.green h3::before { background: #2f9e44; }
+  .card.amber h3::before { background: #e8590c; }
+
+  .card p {
+    font-size: 13.5px;
+    color: var(--muted);
+    margin: 0;
+  }
+
+  .card ul {
+    margin: 8px 0 0;
+    padding-left: 16px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .card li { margin-bottom: 3px; }
+
+  /* ----------------------------------------------------------------- split */
+
+  .split {
+    display: grid;
+    grid-template-columns: 1.15fr 1fr;
+    gap: 28px;
+    align-items: start;
+  }
+
+  pre {
+    background: #1e1e1e;
+    color: #e9ecef;
+    border-radius: 10px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    margin: 0 0 10px;
+    line-height: 1.5;
+  }
+
+  pre .c { color: #868e96; }
+  pre .p { color: #74c0fc; }
+
+  .limits {
+    background: var(--red);
+    border: 1px solid #ffc9c9;
+    border-radius: 10px;
+    padding: 15px 18px;
+  }
+
+  .limits h3 {
+    font-size: 14px;
+    margin: 0 0 8px;
+    color: #c92a2a;
+  }
+
+  .limits ul {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 13.5px;
+    color: #67413f;
+  }
+
+  .limits li { margin-bottom: 4px; }
+
+  /* ----------------------------------------------------------------- links */
+
+  .links {
+    margin-top: 34px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    font-size: 13.5px;
+  }
+
+  .links a {
+    color: var(--ink);
+    text-decoration: none;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 5px 12px;
+    background: var(--panel);
+  }
+
+  .links a:hover { border-color: var(--accent); color: var(--accent); }
+
+  .links a strong { font-weight: 650; }
+
+  .foot {
+    margin-top: 18px;
+    font-size: 12.5px;
+    color: var(--faint);
+  }
+
+  /* --------------------------------------------------------------- narrow */
+
+  @media (max-width: 860px) {
+    .page { padding: 28px 20px 40px; }
+    h1 { font-size: 30px; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .steps, .cards { grid-template-columns: 1fr; }
+    .split { grid-template-columns: 1fr; }
+  }
+
+  /* ---------------------------------------------------------------- print */
+
+  @media print {
+    .page { max-width: none; padding: 0; }
+    h1 { font-size: 26pt; }
+    section { break-inside: avoid; }
+    .card, .limits, pre { break-inside: avoid; }
+    .links a { border: none; padding: 0 8px 0 0; }
+    a { color: inherit; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <div class="brand">
+    <div class="mark">O</div>
+    <div class="brand-name">OxideRoute</div>
+    <div class="version">v0.1.0</div>
+  </div>
+
+  <h1>One OpenAI-compatible API in front of <em>every</em> model vendor</h1>
+
+  <p class="lede">
+    An ultra-low-latency router and gateway in a single Rust binary. It sits between
+    your application and OpenAI, Anthropic, Google Gemini, AWS Bedrock, vLLM or
+    Ollama — choosing the upstream, surviving its failures, translating its wire
+    format, and enforcing per-tenant limits, all without the client noticing.
+  </p>
+
+  <div class="stats">
+    <div class="stat"><b>4</b><span>upstream dialects, one client contract</span></div>
+    <div class="stat"><b>3</b><span>admission gates: requests, tokens, spend</span></div>
+    <div class="stat"><b>2.5&nbsp;s</b><span>default first-token budget per attempt</span></div>
+    <div class="stat"><b>1</b><span>binary, no runtime dependencies</span></div>
+  </div>
+
+  <section>
+    <h2>How the pieces fit</h2>
+    <figure>
+      <a href="diagrams/architecture.png" title="Open the full-resolution diagram">
+        <img src="diagrams/architecture.png"
+             alt="Diagram: a client sends an OpenAI-shaped request to the axum ingress, which passes through request inspection, a config snapshot, routing, admission control and the executor before reaching one of four protocol adapters and its upstream. Config and reload form a control plane on the right.">
+      </a>
+    </figure>
+  </section>
+
+  <section>
+    <h2>What happens to a request</h2>
+    <div class="steps">
+      <div class="step">
+        <div>
+          <h3>Inspected, not copied</h3>
+          <p>One <code>simd-json</code> pass reads the model, stream flag, prompt
+             size and complexity. The original bytes are forwarded verbatim.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>Resolved against a snapshot</h3>
+          <p>Rules and models are evaluated on an <code>ArcSwap</code> snapshot, so a
+             reload can never split one request across two configs.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>Admitted or rejected</h3>
+          <p>Requests per minute, tokens per minute and a daily USD budget are
+             checked per tenant — cheapest gate first.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>Tried against a plan</h3>
+          <p>The result is an ordered, de-duplicated candidate list: primary,
+             strategy targets, then fallbacks.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>Guarded before the first byte</h3>
+          <p>No <code>200 OK</code> reaches the client until an upstream produces a
+             real content frame — not just headers.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>Relayed in OpenAI shape</h3>
+          <p>Whatever the vendor speaks, the client sees the same chunk sequence and
+             a final <code>[DONE]</code>.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Capabilities</h2>
+    <div class="cards">
+      <div class="card">
+        <h3>Declarative routing</h3>
+        <p>Virtual models over weighted targets, with three strategies.</p>
+        <ul>
+          <li><code>priority</code> — primary, then a fixed chain</li>
+          <li><code>weighted_random</code> — sample by weight</li>
+          <li><code>latency_ewma</code> — fastest healthy target first</li>
+        </ul>
+      </div>
+
+      <div class="card green">
+        <h3>Failover that clients cannot see</h3>
+        <p>A provider that returns <code>200</code> and then goes silent is abandoned
+           at its first-token deadline, and the next candidate takes over before any
+           header was committed.</p>
+        <ul>
+          <li>Post-header stalls are caught too</li>
+          <li>Tripped breakers are skipped for free</li>
+          <li>Every failure is logged in the error body</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>Protocol translation</h3>
+        <p>Anthropic, Gemini and Bedrock events are parsed and re-rendered as OpenAI
+           chunks; OpenAI-compatible upstreams are a true pass-through.</p>
+        <ul>
+          <li>Survives arbitrary chunk and UTF-8 boundaries</li>
+          <li>Stop reasons mapped to OpenAI's vocabulary</li>
+        </ul>
+      </div>
+
+      <div class="card amber">
+        <h3>Admission control</h3>
+        <p>Three independent ceilings per tenant, each with its own rejection
+           reason on the metrics endpoint.</p>
+        <ul>
+          <li>GCRA for request rate</li>
+          <li>Cost-weighted bucket for tokens</li>
+          <li>Micro-USD budget, checked before dispatch</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>Zero-downtime reload</h3>
+        <p>Editing the file or sending <code>SIGHUP</code> rebuilds providers, then
+           swaps the config in one atomic store. In-flight streams finish on the
+           config they started with.</p>
+        <ul>
+          <li>Invalid files are rejected; the old config keeps serving</li>
+          <li><code>SIGTERM</code> drains, then exits at a hard deadline</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>Observability that answers questions</h3>
+        <p>Eight Prometheus families on a separate admin listener, plus OTLP traces
+           and PII-redacted logs.</p>
+        <ul>
+          <li>Was this <code>429</code> ours or the vendor's?</li>
+          <li>Which upstreams are ejected right now?</li>
+          <li>How many streams are in flight?</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="split">
+    <div>
+      <h2>Running it</h2>
+<pre><span class="c"># build once; it is a single binary</span>
+cargo build --release
+
+./target/release/oxide init --output oxide.toml
+./target/release/oxide validate --config oxide.toml
+./target/release/oxide serve  --config oxide.toml
+
+<span class="c"># where would this prompt actually go? (no upstream is called)</span>
+./target/release/oxide dry-run --config oxide.toml \
+  --model auto --prompt "Summarise this contract"</pre>
+      <p style="font-size:13.5px;color:var(--muted);margin:0">
+        The client only needs a new base URL. Model names, streaming, and error
+        shapes stay OpenAI-shaped.
+      </p>
+    </div>
+
+    <div>
+      <h2>Deliberate limits</h2>
+      <div class="limits">
+        <h3>Not implemented today</h3>
+        <ul>
+          <li><strong>No ingress authentication.</strong> Tenant identity is the
+              client-supplied <code>X-Tenant-ID</code>, so limits bind only behind a
+              trusted front end.</li>
+          <li><strong>Response cache</strong> is accepted in config but not wired.</li>
+          <li><strong>Error-rate breaker</strong> knobs are inert; only consecutive
+              failures trip a breaker.</li>
+          <li><strong>Streaming usage</strong> is billed on the prompt estimate —
+              streams carry no usage block.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <nav class="links">
+    <a href="GUIDE.md"><strong>Walkthrough</strong> — feature by feature</a>
+    <a href="../README.md">README — quickstart</a>
+    <a href="ARCHITECTURE.md">Architecture</a>
+    <a href="SPECS_AND_SCHEMAS.md">Config &amp; SSE specs</a>
+    <a href="TESTING_AND_BENCHMARKS.md">Testing</a>
+    <a href="STRESS_TEST_PLAN.md">Stress plan</a>
+    <a href="diagrams/architecture.excalidraw">Diagram sources</a>
+  </nav>
+
+  <p class="foot">
+    OxideRoute v0.1.0 · Rust · OpenAI-compatible ingress at
+    <code>/v1/chat/completions</code> and <code>/v1/embeddings</code>.
+  </p>
+
+</main>
+</body>
+</html>

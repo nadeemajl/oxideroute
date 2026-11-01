@@ -6,17 +6,10 @@ Bedrock, and any OpenAI-compatible server such as vLLM or Ollama), presenting a
 single OpenAI-compatible API with declarative fallbacks, latency-aware load
 balancing, per-tenant rate limiting, and zero-downtime config reloads.
 
-```
-client ──► /v1/chat/completions ──► rule evaluation ──► candidate plan
-                  │                                        │
-                  │                    ┌───────────────────┘
-                  │                    ▼
-                  │        TTFT watchdog per candidate
-                  │        (first frame or fail over)
-                  ▼                    │
-           200 OK only after ──────────┘
-           the first content frame
-```
+![Request control flow](docs/flow.png)
+
+*Editable source: [`docs/flow.excalidraw`](docs/flow.excalidraw) — open it at
+[excalidraw.com](https://excalidraw.com).*
 
 The defining property: **no downstream headers are sent until an upstream has
 produced a first content frame.** A provider that accepts the connection, returns

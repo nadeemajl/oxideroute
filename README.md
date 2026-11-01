@@ -186,3 +186,4 @@ provider unit tests and the integration suites.
 - [`docs/SPECS_AND_SCHEMAS.md`](docs/SPECS_AND_SCHEMAS.md) — config syntax, protocol translation, error schema
 - [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) — build order
 - [`docs/TESTING_AND_BENCHMARKS.md`](docs/TESTING_AND_BENCHMARKS.md) — mock server, chaos scenarios, budgets
+- [`docs/STRESS_TEST_PLAN.md`](docs/STRESS_TEST_PLAN.md) — capacity, overload, soak, and lifecycle campaigns

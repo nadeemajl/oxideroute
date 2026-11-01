@@ -46,30 +46,36 @@ Components under observation: axum ingress, `inspect_request` (simd-json copy),
 
 ## 3. Prerequisites
 
-### 3.1 Instrumentation gaps — close these first
+### 3.1 Instrumentation
 
-`/metrics` currently exposes four families:
+`/metrics` exposes eight families. The first four are the original set; the
+rest were added specifically so the pass criteria below are observable:
 
-| Metric | Type |
-|---|---|
-| `oxide_ttft_seconds` | histogram |
-| `oxide_requests_total` | counter |
-| `oxide_fallback_triggered_total` | counter |
-| `oxide_tokens_total` | counter |
+| Metric | Type | Answers |
+|---|---|---|
+| `oxide_ttft_seconds` | histogram | how fast did first tokens arrive |
+| `oxide_requests_total` | counter | per-upstream outcomes |
+| `oxide_fallback_triggered_total` | counter | failover rate and reason |
+| `oxide_tokens_total` | counter | prompt/completion volume per tenant |
+| `oxide_rate_limited_total{tenant,reason}` | counter | **did we throttle?** (`rpm`/`tpm`/`budget`) — ST-13/14/15/16/17 |
+| `oxide_inflight_requests` | gauge | saturation; Little's-law check — ST-02/03 |
+| `oxide_reload_total{result,source}` | counter | reload success/rejection under churn — ST-18/19/20 |
+| `oxide_breaker_open{upstream}` | gauge | which upstreams are ejected — ST-11/12 |
 
-Several pass criteria below are **unobservable** without these additions:
+Still missing, and still needed for the scenarios that name them:
 
 | Needed metric | Why |
 |---|---|
-| `oxide_rate_limited_total{tenant,reason}` | distinguish `429` from upstream `429`s (ST-13/14/15) |
-| `oxide_inflight_requests` (gauge) | saturation, Little's-law validation (ST-02) |
-| `oxide_reload_total{result}` | reload success/failure under churn (ST-16/17) |
-| `oxide_breaker_open{upstream}` (gauge) | confirm ejection (ST-11) |
 | `oxide_body_rejected_total{reason}` | oversized-body path (ST-08) |
 | `oxide_pool_idle_connections` (gauge) | connection-pool saturation (ST-03) |
 
-Do not start Phase A until at least the first four exist. Otherwise "did the
-router throttle or did the upstream?" is a guess.
+Two measurement caveats that will otherwise produce wrong conclusions:
+
+- `oxide_inflight_requests` counts a stream until its **last frame**, not until
+  the handler returns, so a long SSE response is correctly counted as in flight.
+- `oxide_breaker_open` is sampled from the health table **at scrape time**. A
+  scrape interval longer than `cooldown_seconds` can therefore miss a short
+  ejection; record the scrape interval alongside the number.
 
 ### 3.2 Harness — does not exist yet
 
@@ -275,20 +281,23 @@ increasing; p99 > 5× target with CPU < 50 %.
 
 ## 9. Known defects and risks this plan should confirm
 
-These are **expected to show up as failures**, based on reading the code. They
-are listed so nobody mistakes them for stress-test noise.
+Items 9.1 and 9.2 were fixed after this plan was written; they are kept (and
+marked) so the campaign measures the *new* behaviour rather than assuming the
+old defect. 9.3–9.5 are still expected to show up as failures, based on reading
+the code, and are listed so nobody mistakes them for stress-test noise.
 
-### 9.1 `admin_listen` is never bound
-`serve` binds only `listen`. `admin_listen` is parsed, validated, and printed by
-`oxide validate`, but no socket is created. Consequence: `/metrics` and
-`/healthz` sit on the **public** ingress. ST-25 should be run with the
-understanding that the scrape endpoint is internet-facing today.
+### 9.1 `admin_listen` is never bound — **fixed**
+`serve` now binds `admin_listen` as a second listener carrying `/metrics` and
+`/healthz`, and the public ingress no longer serves `/metrics`. When
+`admin_listen` is unset the scrape endpoint falls back to the ingress and a
+warning is logged at startup. ST-25 should now confirm the split holds
+end-to-end rather than assert the old defect.
 
-### 9.2 The graceful-shutdown deadline is not enforced
-`shutdown_signal(drain_ms)` logs `drain_ms` and returns; `with_graceful_shutdown`
-then waits **indefinitely** for connections to close. A single stalled SSE stream
-holds the process open, and orchestrators will `SIGKILL` after their own grace
-period. ST-23 should demonstrate this.
+### 9.2 The graceful-shutdown deadline is not enforced — **fixed**
+`serve` now waits `graceful_shutdown_timeout_ms` from the moment the signal
+arrives, then logs a warning and exits even if streams are still open. ST-23
+should still measure the *observable* behaviour (how many streams are cut short
+by the deadline) rather than whether the deadline exists.
 
 ### 9.3 Tenant identity is client-controlled
 `resolve_tenant` uses the `X-Tenant-ID` *value* as the tenant key. The router

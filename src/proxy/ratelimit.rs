@@ -6,12 +6,14 @@
 //! bucket that refills continuously at `tpm/60s`, which also avoids the
 //! double-burst artefact of a fixed one-minute window.
 //!
-//! # Budget gap
+//! Every rejection is counted as `oxide_rate_limited_total{tenant,reason}` so an
+//! operator can tell a throttle we applied from an upstream's own `429`.
 //!
-//! `daily_budget_usd` is enforced against a counter that nothing currently
-//! increments, because the config schema has no per-token price table. The
-//! plumbing (`record_spend_usd`) is in place and exhaustion denies admission;
-//! wiring a price source is a follow-up that needs a schema addition.
+//! # Identity
+//!
+//! Limits are keyed on the `X-Tenant-ID` header value (see
+//! [`resolve_tenant`]). The router does not authenticate callers, so this is
+//! only a control when that header is set by a trusted front end.
 
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -25,6 +27,7 @@ use http::HeaderMap;
 use crate::config::{RateLimitConfig, RouterConfig};
 use crate::error::RouterError;
 use crate::state::now_ms;
+use crate::telemetry::metrics;
 
 /// Fixed-point scale for the token bucket, giving millitoken precision.
 const TOKEN_SCALE: u64 = 1_000;
@@ -199,20 +202,22 @@ impl TenantRateLimiter {
             .or_insert_with(|| TenantBuckets::new(limits));
 
         if entry.rpm.check().is_err() {
-            return Err(RouterError::RateLimitExceeded {
-                tenant: tenant.to_string(),
-                detail: format!("requests per minute limit of {} exceeded", limits.rpm),
-            });
+            return Err(rejected(
+                tenant,
+                "rpm",
+                format!("requests per minute limit of {} exceeded", limits.rpm),
+            ));
         }
 
         if !entry.tpm.try_consume(estimated_tokens as u64) {
-            return Err(RouterError::RateLimitExceeded {
-                tenant: tenant.to_string(),
-                detail: format!(
+            return Err(rejected(
+                tenant,
+                "tpm",
+                format!(
                     "tokens per minute limit of {} exceeded by a request estimated at {} tokens",
                     limits.tpm, estimated_tokens
                 ),
-            });
+            ));
         }
 
         let budget = usd_to_micros(limits.daily_budget_usd);
@@ -222,14 +227,15 @@ impl TenantRateLimiter {
         // exhausted budget denies even a zero-cost request, otherwise unpriced
         // traffic would sail past a spent budget forever.
         if spent >= budget || spent.saturating_add(usd_to_micros(estimated_cost_usd)) > budget {
-            return Err(RouterError::RateLimitExceeded {
-                tenant: tenant.to_string(),
-                detail: format!(
+            return Err(rejected(
+                tenant,
+                "budget",
+                format!(
                     "daily budget of ${:.2} exhausted (spent ${:.2})",
                     limits.daily_budget_usd,
                     spent as f64 / MICROS_PER_USD
                 ),
-            });
+            ));
         }
 
         Ok(())
@@ -268,6 +274,18 @@ fn usd_to_micros(usd: f64) -> u64 {
         return 0;
     }
     (usd * MICROS_PER_USD).round() as u64
+}
+
+/// Builds an admission rejection, counting it against the limiting dimension.
+///
+/// Routing every rejection through here is what guarantees the metric can never
+/// drift out of sync with the returned errors.
+fn rejected(tenant: &str, reason: &str, detail: String) -> RouterError {
+    metrics::record_rate_limited(tenant, reason);
+    RouterError::RateLimitExceeded {
+        tenant: tenant.to_string(),
+        detail,
+    }
 }
 
 /// Resolves which configured limit set applies to a request.

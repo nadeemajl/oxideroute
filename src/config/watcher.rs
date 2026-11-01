@@ -20,6 +20,7 @@ use tracing::{info, warn};
 use crate::config::loader::{load_config_from_path, InterpolationMode};
 use crate::error::RouterError;
 use crate::state::AppState;
+use crate::telemetry::metrics;
 
 /// How long to wait after a filesystem event before reloading.
 ///
@@ -34,9 +35,36 @@ const DEBOUNCE: Duration = Duration::from_millis(50);
 /// Propagates parse/validation failures and provider-construction failures. On
 /// error the previously active configuration remains in effect.
 pub fn reload_from_path(state: &AppState, path: impl AsRef<Path>) -> Result<(), RouterError> {
-    let config = load_config_from_path(path, InterpolationMode::Strict)?;
-    state.apply_config(config)?;
-    Ok(())
+    reload_with_source(state, path, "manual")
+}
+
+/// Reloads and counts the attempt, tagged with what triggered it.
+///
+/// A rejected reload is a *successful* safety mechanism — the old config keeps
+/// serving — so it must be visible as a counter rather than only as a log line.
+fn reload_with_source(
+    state: &AppState,
+    path: impl AsRef<Path>,
+    source: &str,
+) -> Result<(), RouterError> {
+    let config = match load_config_from_path(path, InterpolationMode::Strict) {
+        Ok(config) => config,
+        Err(error) => {
+            metrics::record_reload("rejected", source);
+            return Err(error.into());
+        }
+    };
+
+    match state.apply_config(config) {
+        Ok(()) => {
+            metrics::record_reload("success", source);
+            Ok(())
+        }
+        Err(error) => {
+            metrics::record_reload("rejected", source);
+            Err(error)
+        }
+    }
 }
 
 /// Starts watching `path` and reloading the state when it changes.
@@ -74,7 +102,7 @@ pub fn spawn_file_watcher(
                 Ok(event) if event.kind.is_modify() || event.kind.is_create() => {
                     tokio::time::sleep(DEBOUNCE).await;
 
-                    match reload_from_path(&state, &target) {
+                    match reload_with_source(&state, &target, "file") {
                         Ok(()) => info!(config = %target.display(), "configuration reloaded"),
                         Err(error) => warn!(
                             config = %target.display(),
@@ -106,7 +134,7 @@ pub fn spawn_sighup_listener(state: Arc<AppState>, path: PathBuf) -> Result<(), 
 
     tokio::spawn(async move {
         while signals.recv().await.is_some() {
-            match reload_from_path(&state, &path) {
+            match reload_with_source(&state, &path, "signal") {
                 Ok(()) => info!(config = %path.display(), "configuration reloaded on SIGHUP"),
                 Err(error) => warn!(
                     config = %path.display(),

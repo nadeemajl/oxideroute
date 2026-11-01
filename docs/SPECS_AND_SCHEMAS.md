@@ -25,8 +25,8 @@ fallbacks = ["anthropic/claude-3-7-sonnet-latest"]
 ```toml
 #:schema https://schema.oxideroute.dev/v1/oxide.schema.json
 listen = "0.0.0.0:8080"
-admin_listen = "127.0.0.1:9090"
-graceful_shutdown_timeout_ms = 30000
+admin_listen = "127.0.0.1:9090"   # serves /metrics and /healthz; must differ from `listen`
+graceful_shutdown_timeout_ms = 30000  # hard deadline for draining after SIGTERM
 
 [telemetry]
 prometheus_endpoint = "/metrics"

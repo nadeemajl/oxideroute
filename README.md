@@ -51,12 +51,17 @@ production secrets.
 
 ## HTTP API
 
-| Route | Description |
-|---|---|
-| `POST /v1/chat/completions` | Streaming (`stream: true`) and buffered completions. |
-| `POST /v1/embeddings` | Pass-through embeddings (OpenAI-compatible upstreams). |
-| `GET /healthz` | Liveness. |
-| `GET /metrics` | Prometheus exposition. |
+| Listener | Route | Description |
+|---|---|---|
+| ingress (`listen`) | `POST /v1/chat/completions` | Streaming (`stream: true`) and buffered completions. |
+| ingress (`listen`) | `POST /v1/embeddings` | Pass-through embeddings (OpenAI-compatible upstreams). |
+| ingress (`listen`) | `GET /healthz` | Liveness, so pod probes can use the serving port. |
+| admin (`admin_listen`) | `GET {telemetry.prometheus_endpoint}` | Prometheus exposition (default `/metrics`). |
+| admin (`admin_listen`) | `GET /healthz` | Liveness. |
+
+Set `admin_listen` to keep `/metrics` off the public ingress; the scrape payload
+exposes per-tenant and per-upstream traffic shape. If it is unset, `/metrics`
+falls back to the ingress listener and `serve` logs a warning at startup.
 
 Errors always use the OpenAI envelope, with extra diagnostics under
 `oxide_metadata`:
@@ -136,6 +141,16 @@ Metrics on `/metrics`:
 | `oxide_requests_total` | counter | `provider`, `model`, `status` (`success`, `error`, `circuit_open`) |
 | `oxide_fallback_triggered_total` | counter | `from_provider`, `to_provider`, `reason` |
 | `oxide_tokens_total` | counter | `tenant`, `provider`, `token_type` |
+| `oxide_rate_limited_total` | counter | `tenant`, `reason` (`rpm`, `tpm`, `budget`) |
+| `oxide_inflight_requests` | gauge | — |
+| `oxide_reload_total` | counter | `result` (`success`, `rejected`), `source` (`file`, `signal`, `manual`) |
+| `oxide_breaker_open` | gauge | `upstream` |
+
+`oxide_rate_limited_total` is what separates a throttle we applied from an
+upstream's own `429`; `oxide_inflight_requests` counts streams until their last
+frame, not until the handler returns; `oxide_breaker_open` is sampled from the
+health table at scrape time, so a cooldown that lapses between requests still
+reads as closed.
 
 Logs are rendered and then passed through a PII redaction filter, so emails,
 bearer tokens, vendor API keys, card numbers, and phone numbers are scrubbed
@@ -152,6 +167,9 @@ over OTLP/gRPC.
   is spliced; key order, whitespace, and vendor fields survive.
 - **Lock-free reads.** Config lives in an `ArcSwap`; health is atomics; the
   provider registry is a `DashMap`.
+- **Bounded shutdown.** `SIGTERM`/`Ctrl-C` stops accepting, drains in-flight
+  streams, and exits at `graceful_shutdown_timeout_ms` regardless — a stalled
+  SSE stream cannot hold the process open past its budget.
 - **No panics on the request path.** `src/proxy/`, `src/providers/`, and
   `src/telemetry/` contain no `unwrap`, `expect`, or `panic!` outside tests.
 
@@ -160,7 +178,7 @@ over OTLP/gRPC.
 ```bash
 cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
-cargo test --all-targets          # 251 tests, fully offline
+cargo test --all-targets          # 267 tests, fully offline
 cargo bench --bench latency       # hot-path budgets
 ```
 

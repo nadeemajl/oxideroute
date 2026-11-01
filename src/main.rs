@@ -12,20 +12,23 @@
 //! work on a machine that does not hold the production secrets, so an unset
 //! `${VAR}` is preserved rather than treated as fatal.
 
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use http::{HeaderMap, HeaderName, HeaderValue};
+use tokio::sync::watch;
 
 use oxide_route::config::loader::{load_config_from_path, InterpolationMode};
 use oxide_route::config::RouterConfig;
 use oxide_route::error::{ConfigError, RouterError};
-use oxide_route::proxy::build_router_with_metrics;
 use oxide_route::proxy::inspector::inspect_request;
 use oxide_route::proxy::router_engine::{matched_rule_name, resolve_candidates};
+use oxide_route::proxy::{build_admin_router, build_router, build_router_with_metrics};
 use oxide_route::state::AppState;
 use oxide_route::telemetry::metrics::Metrics;
 
@@ -153,39 +156,172 @@ async fn serve(path: PathBuf) -> Result<(), RouterError> {
     let telemetry = oxide_route::telemetry::init_tracing(&config.telemetry)?;
 
     let listen = config.listen.clone();
-    let drain_ms = config.graceful_shutdown_timeout_ms;
+    let admin_listen = config.admin_listen.clone();
+    let drain = Duration::from_millis(config.graceful_shutdown_timeout_ms);
 
     let state = Arc::new(AppState::new(config)?);
     let metrics = Metrics::install()?;
+
+    // Seed the gauges so a fresh process reports idle rather than rendering an
+    // empty exposition page.
+    metrics.seed_idle(configured_upstreams(&state));
 
     // Hold the watcher for the process lifetime; dropping it stops the watch.
     let _watcher =
         oxide_route::config::watcher::spawn_file_watcher(Arc::clone(&state), path.clone())?;
     oxide_route::config::watcher::spawn_sighup_listener(Arc::clone(&state), path.clone())?;
 
-    let app = build_router_with_metrics(Arc::clone(&state), metrics);
+    // Bind everything before serving anything, so a port conflict fails at
+    // startup instead of leaving one listener half-live.
+    let public_listener = bind(&listen).await?;
+    let admin_listener = match admin_listen.as_deref() {
+        Some(address) => Some(bind(address).await?),
+        None => None,
+    };
 
-    let listener = tokio::net::TcpListener::bind(&listen)
-        .await
-        .map_err(|error| RouterError::Internal {
-            message: format!("failed to bind `{listen}`: {error}"),
-        })?;
+    let public_app = if admin_listener.is_some() {
+        build_router(Arc::clone(&state))
+    } else {
+        // No admin port means the scrape endpoint has nowhere else to live.
+        // Say so loudly: `/metrics` carries per-tenant and per-upstream traffic
+        // shape and is now reachable by anything that can reach the ingress.
+        tracing::warn!(
+            "`admin_listen` is unset: /metrics and /healthz are served on the public listener"
+        );
+        build_router_with_metrics(Arc::clone(&state), metrics.clone())
+    };
+
+    // One signal watcher fans out to every listener. A `watch` channel is used
+    // rather than a one-shot future because `with_graceful_shutdown` consumes
+    // its future and each server needs its own view of the same signal.
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    tokio::spawn(watch_signals(shutdown_tx, drain));
+
+    let public_server = axum::serve(public_listener, public_app)
+        .with_graceful_shutdown(wait_for_shutdown(shutdown_rx.clone()));
 
     tracing::info!(address = %listen, config = %path.display(), "oxide serving");
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(drain_ms))
-        .await
-        .map_err(|error| RouterError::Internal {
-            message: format!("server error: {error}"),
-        })?;
+    let servers: Pin<Box<dyn Future<Output = Result<(), RouterError>> + Send>> =
+        match admin_listener {
+            Some(admin_listener) => {
+                let admin_app = build_admin_router(Arc::clone(&state), metrics.clone());
+                let admin_server = axum::serve(admin_listener, admin_app)
+                    .with_graceful_shutdown(wait_for_shutdown(shutdown_rx.clone()));
+
+                tracing::info!(
+                    address = %admin_listen.as_deref().unwrap_or_default(),
+                    "admin listener serving /metrics and /healthz"
+                );
+
+                Box::pin(async move {
+                    tokio::try_join!(public_server, admin_server).map_err(server_error)?;
+                    Ok(())
+                })
+            }
+            None => Box::pin(async move {
+                public_server.await.map_err(server_error)?;
+                Ok(())
+            }),
+        };
+
+    let drained = await_drain(servers, shutdown_rx, drain, || {
+        // The hard stop for streams that outlive the drain window. Without it a
+        // single stalled SSE stream holds the process open until the orchestrator
+        // gives up and SIGKILLs, which loses the same streams anyway — but
+        // without the log line explaining why.
+        tracing::warn!(
+            drain_ms = drain.as_millis() as u64,
+            "graceful shutdown deadline reached; dropping remaining connections"
+        );
+        std::process::exit(0);
+    })
+    .await;
+
+    // `None` is only reachable from tests: in production the deadline handler
+    // exits the process instead of returning.
+    if let Some(result) = drained {
+        result?;
+    }
 
     telemetry.shutdown();
     tracing::info!("shutdown complete");
     Ok(())
 }
 
-async fn shutdown_signal(drain_ms: u64) {
+fn server_error(error: std::io::Error) -> RouterError {
+    RouterError::Internal {
+        message: format!("server error: {error}"),
+    }
+}
+
+/// Every `provider/model` reference the configuration can dispatch to.
+///
+/// Sorted and deduplicated so a model that reuses a fallback does not produce
+/// duplicate gauge series.
+fn configured_upstreams(state: &AppState) -> Vec<String> {
+    let mut references: Vec<String> = state
+        .config()
+        .models
+        .values()
+        .flat_map(|model| model.upstream_references())
+        .map(str::to_string)
+        .collect();
+
+    references.sort();
+    references.dedup();
+    references
+}
+
+async fn bind(address: &str) -> Result<tokio::net::TcpListener, RouterError> {
+    tokio::net::TcpListener::bind(address)
+        .await
+        .map_err(|error| RouterError::Internal {
+            message: format!("failed to bind `{address}`: {error}"),
+        })
+}
+
+/// Runs the servers to completion, forcing `on_deadline` once the drain window
+/// after a shutdown signal expires.
+///
+/// The deadline is measured from the signal, not from this call: a process that
+/// has been serving for an hour still gets its full `graceful_shutdown_timeout_ms`.
+///
+/// Returns `None` when the deadline fired.
+async fn await_drain<F>(
+    servers: F,
+    shutdown: watch::Receiver<bool>,
+    drain: Duration,
+    on_deadline: impl FnOnce(),
+) -> Option<F::Output>
+where
+    F: Future,
+{
+    let deadline = async {
+        wait_for_shutdown(shutdown).await;
+        tokio::time::sleep(drain).await;
+    };
+
+    tokio::select! {
+        output = servers => Some(output),
+        () = deadline => {
+            on_deadline();
+            None
+        }
+    }
+}
+
+/// Resolves once the shutdown flag is raised, including when it already was.
+async fn wait_for_shutdown(mut shutdown: watch::Receiver<bool>) {
+    while !*shutdown.borrow_and_update() {
+        if shutdown.changed().await.is_err() {
+            return;
+        }
+    }
+}
+
+/// Waits for Ctrl-C or SIGTERM, then raises the shutdown flag for every server.
+async fn watch_signals(shutdown: watch::Sender<bool>, drain: Duration) {
     let ctrl_c = async {
         if let Err(error) = tokio::signal::ctrl_c().await {
             tracing::error!(%error, "failed to listen for Ctrl-C or SIGINT");
@@ -214,7 +350,14 @@ async fn shutdown_signal(drain_ms: u64) {
         _ = terminate => {}
     }
 
-    tracing::info!(drain_ms, "shutting down; draining in-flight requests");
+    tracing::info!(
+        drain_ms = drain.as_millis() as u64,
+        "shutting down; draining in-flight requests"
+    );
+
+    // Fails only when every server has already dropped its receiver, which means
+    // the process is on its way down anyway.
+    let _ = shutdown.send(true);
 }
 
 // --------------------------------------------------------------------------- validate
@@ -224,8 +367,11 @@ async fn validate(path: PathBuf, check_upstreams: bool) -> Result<(), RouterErro
 
     println!("configuration OK: {}", path.display());
     println!("  listen:               {}", config.listen);
-    if let Some(admin) = &config.admin_listen {
-        println!("  admin_listen:         {admin}");
+    match &config.admin_listen {
+        Some(admin) => println!("  admin_listen:         {admin}  (/metrics, /healthz)"),
+        None => println!(
+            "  admin_listen:         <unset>  -- /metrics will be served on the public listener"
+        ),
     }
     println!("  providers:            {}", config.providers.len());
     println!("  models:               {}", config.models.len());
@@ -416,4 +562,88 @@ fn schema() -> Result<(), RouterError> {
 
     println!("{rendered}");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Instant;
+
+    /// Raises the shutdown flag after `after`.
+    fn signal_after(after: Duration, shutdown: &watch::Sender<bool>) {
+        let shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(after).await;
+            let _ = shutdown.send(true);
+        });
+    }
+
+    #[tokio::test]
+    async fn drain_deadline_forces_exit_when_a_stream_never_ends() {
+        let (tx, rx) = watch::channel(false);
+        signal_after(Duration::from_millis(10), &tx);
+
+        let fired = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&fired);
+        let started = Instant::now();
+
+        // A server that never finishes, like one stalled SSE stream.
+        let outcome = await_drain(
+            std::future::pending::<()>(),
+            rx,
+            Duration::from_millis(30),
+            move || flag.store(true, Ordering::SeqCst),
+        )
+        .await;
+
+        let elapsed = started.elapsed();
+        assert!(outcome.is_none(), "a stalled drain must hit the deadline");
+        assert!(
+            fired.load(Ordering::SeqCst),
+            "the deadline handler must run"
+        );
+        assert!(
+            elapsed >= Duration::from_millis(35),
+            "the deadline started before the signal fired: {elapsed:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn drain_returns_normally_when_the_servers_finish_first() {
+        let (tx, rx) = watch::channel(false);
+        signal_after(Duration::from_millis(10), &tx);
+
+        let fired = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&fired);
+
+        let servers = async {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            "drained"
+        };
+
+        let outcome = await_drain(servers, rx, Duration::from_secs(30), move || {
+            flag.store(true, Ordering::SeqCst);
+        })
+        .await;
+
+        assert_eq!(outcome, Some("drained"), "the drain result must survive");
+        assert!(
+            !fired.load(Ordering::SeqCst),
+            "a prompt drain must not trigger the deadline"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_shutdown_already_raised_is_not_missed() {
+        let (_tx, rx) = watch::channel(true);
+
+        let started = Instant::now();
+        wait_for_shutdown(rx).await;
+
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "waiting on an already-set flag must return immediately"
+        );
+    }
 }

@@ -200,6 +200,7 @@ provider unit tests and the integration suites.
 
 ## Documentation
 
+- [`docs/GUIDE.md`](docs/GUIDE.md) — **walkthrough**: how each feature behaves, with diagrams
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — module layout, traits, concurrency invariants
 - [`docs/SPECS_AND_SCHEMAS.md`](docs/SPECS_AND_SCHEMAS.md) — config syntax, protocol translation, error schema
 - [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) — build order

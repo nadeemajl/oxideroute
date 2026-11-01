@@ -9,6 +9,7 @@ otlp_endpoint = "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4317}"
 redact_pii = true
 log_payloads = false
 
+# Accepted by the schema but not yet wired; see docs/GUIDE.md §11.
 [cache]
 enabled = true
 backend = "memory"

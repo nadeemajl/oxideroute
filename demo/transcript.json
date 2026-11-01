@@ -1,0 +1,639 @@
+{
+  "meta": {
+    "binary": "target/debug/oxide",
+    "repo": "github.com/nadeemajl/oxideroute",
+    "note": "Every line below was captured from a live process."
+  },
+  "scenes": [
+    {
+      "title": "Validate before you run",
+      "caption": "`validate` parses the TOML, interpolates ${ENV}, checks every upstream reference and reports the topology \u2014 without binding a port.",
+      "blocks": [
+        {
+          "display": "export PATH=\"$PWD/target/debug:$PATH\"",
+          "output": []
+        },
+        {
+          "display": "oxide validate --config demo/oxide.toml",
+          "output": [
+            {
+              "text": "configuration OK: demo/oxide.toml",
+              "kind": "kv",
+              "gap": 0.119
+            },
+            {
+              "text": "  listen:               127.0.0.1:8080",
+              "kind": "kv",
+              "gap": 0.004
+            },
+            {
+              "text": "  admin_listen:         127.0.0.1:9090  (/metrics, /healthz)",
+              "kind": "kv",
+              "gap": 0.0
+            },
+            {
+              "text": "  providers:            4",
+              "kind": "kv",
+              "gap": 0.0
+            },
+            {
+              "text": "  models:               4",
+              "kind": "kv",
+              "gap": 0.0
+            },
+            {
+              "text": "  routing rules:        1",
+              "kind": "kv",
+              "gap": 0.0
+            },
+            {
+              "text": "  rate-limited tenants: 1",
+              "kind": "kv",
+              "gap": 0.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Ask where a request would go",
+      "caption": "`dry-run` runs the real resolver and prints the plan. It calls no upstream, so it is safe to run in CI and while debugging.",
+      "blocks": [
+        {
+          "display": "oxide dry-run --config demo/oxide.toml \\\n  --model smart-router --prompt \"Explain circuit breakers\"",
+          "output": [
+            {
+              "text": "Routing trace",
+              "kind": "out",
+              "gap": 0.109
+            },
+            {
+              "text": "=============",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "config:      demo/oxide.toml",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "request id:  req_d00a5a69f4df4f538f52a88ebce2f003",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "model:       smart-router",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "stream:      true",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "prompt:      ~26 tokens (estimated), complexity 0.00",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "matched:     no rule (virtual model)",
+              "kind": "out",
+              "gap": 0.001
+            },
+            {
+              "text": "retry on:    429, 500, 502, 503, 504, 529",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "#   PROVIDER           UPSTREAM MODEL                   HEALTH      EWMA(\u00b5s)",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "1   mock_primary       gpt-4o-mini                      unknown            -",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "2   mock_backup        gpt-4o-mini                      unknown            -",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "plan: try 2 upstream(s) in order, then fail the request",
+              "kind": "out",
+              "gap": 0.0
+            }
+          ]
+        },
+        {
+          "display": "oxide dry-run --config demo/oxide.toml \\\n  --model auto --prompt \"$(cat docs/GUIDE.md)\"",
+          "output": [
+            {
+              "text": "Routing trace",
+              "kind": "out",
+              "gap": 0.252
+            },
+            {
+              "text": "=============",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "config:      demo/oxide.toml",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "request id:  req_c64e468c2e0842fcb150463ab2ff6c10",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "model:       auto",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "stream:      true",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "prompt:      ~5172 tokens (estimated), complexity 1.00",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "matched:     rule `long-prompts-to-the-big-model`",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "retry on:    429, 500, 502, 503, 504, 529",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "#   PROVIDER           UPSTREAM MODEL                   HEALTH      EWMA(\u00b5s)",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "1   mock_primary       gpt-4o-mini                      unknown            -",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "2   mock_backup        gpt-4o-mini                      unknown            -",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "plan: try 2 upstream(s) in order, then fail the request",
+              "kind": "out",
+              "gap": 0.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Start the service",
+      "caption": "Two listeners: client traffic on 8080, operator traffic on 9090. Scrape traffic never touches the ingress.",
+      "blocks": [
+        {
+          "display": "oxide serve --config demo/oxide.toml &",
+          "output": [
+            {
+              "text": "2026-11-01T13:20:10.724136Z  INFO oxide: oxide serving address=127.0.0.1:8080 config=demo/oxide.toml",
+              "kind": "log",
+              "gap": 0.0
+            },
+            {
+              "text": "2026-11-01T13:20:10.737496Z  INFO oxide: admin listener serving /metrics and /healthz address=127.0.0.1:9090",
+              "kind": "log",
+              "gap": 0.0
+            }
+          ]
+        },
+        {
+          "display": "curl -s localhost:8080/healthz",
+          "output": [
+            {
+              "text": "ok",
+              "kind": "out",
+              "gap": 0.049
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Serve a streaming completion",
+      "caption": "The client speaks OpenAI and receives OpenAI frames. Each frame is relayed as the upstream produces it \u2014 nothing is buffered.",
+      "blocks": [
+        {
+          "display": "curl -sN localhost:8080/v1/chat/completions \\\n  -H 'content-type: application/json' -d @demo/chat.json",
+          "output": [
+            {
+              "text": "data: {\"id\":\"chatcmpl-demo\",\"object\":\"chat.completion.chunk\",\"created\":1793539211,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}",
+              "kind": "sse",
+              "gap": 0.052
+            },
+            {
+              "text": "data: {\"id\":\"chatcmpl-demo\",\"object\":\"chat.completion.chunk\",\"created\":1793539211,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"A circuit breaker \"},\"finish_reason\":null}]}",
+              "kind": "sse",
+              "gap": 0.049
+            },
+            {
+              "text": "data: {\"id\":\"chatcmpl-demo\",\"object\":\"chat.completion.chunk\",\"created\":1793539211,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"has three states: \"},\"finish_reason\":null}]}",
+              "kind": "sse",
+              "gap": 0.051
+            },
+            {
+              "text": "data: {\"id\":\"chatcmpl-demo\",\"object\":\"chat.completion.chunk\",\"created\":1793539211,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"closed, open, \"},\"finish_reason\":null}]}",
+              "kind": "sse",
+              "gap": 0.05
+            },
+            {
+              "text": "data: {\"id\":\"chatcmpl-demo\",\"object\":\"chat.completion.chunk\",\"created\":1793539211,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"and half-open.\"},\"finish_reason\":null}]}",
+              "kind": "sse",
+              "gap": 0.05
+            },
+            {
+              "text": "data: {\"id\":\"chatcmpl-demo\",\"object\":\"chat.completion.chunk\",\"created\":1793539211,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}",
+              "kind": "sse",
+              "gap": 0.051
+            },
+            {
+              "text": "data: {\"id\":\"chatcmpl-demo\",\"object\":\"chat.completion.chunk\",\"created\":1793539211,\"model\":\"gpt-4o-mini\",\"choices\":[],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":28,\"total_tokens\":40}}",
+              "kind": "sse",
+              "gap": 0.05
+            },
+            {
+              "text": "data: [DONE]",
+              "kind": "sse",
+              "gap": 0.051
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Fail over a provider that stalls after 200",
+      "caption": "The primary answered 200 and then sent only `: ping`. The watchdog fired at 800 ms, and the client got a normal answer from the fallback.",
+      "blocks": [
+        {
+          "display": "curl -s -o /dev/null -D - \\\n  -w 'ttfb=%{time_starttransfer}s total=%{time_total}s\\n' \\\n  -H 'content-type: application/json' -d @demo/smart.json \\\n  localhost:8080/v1/chat/completions | grep -E 'HTTP|x-oxide|ttfb'",
+          "output": [
+            {
+              "text": "HTTP/1.1 200 OK",
+              "kind": "header",
+              "gap": 1.301
+            },
+            {
+              "text": "x-oxide-request-id: req_6afd1fd68ba645f7bc1cff0328614599",
+              "kind": "header",
+              "gap": 0.0
+            },
+            {
+              "text": "x-oxide-upstream: mock_backup/gpt-4o-mini",
+              "kind": "header",
+              "gap": 0.0
+            },
+            {
+              "text": "ttfb=0.846266s total=1.246663s",
+              "kind": "out",
+              "gap": 0.0
+            }
+          ]
+        },
+        {
+          "display": "curl -s localhost:9090/metrics | grep '^oxide_fallback'",
+          "output": [
+            {
+              "text": "oxide_fallback_triggered_total{from_provider=\"mock_primary\",to_provider=\"mock_backup\",reason=\"ttft_timeout_exceeded (800ms)\"} 1",
+              "kind": "out",
+              "gap": 0.056
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Retry on an upstream 429",
+      "caption": "429 is in `retry_on_status`, so the request moves to the next candidate. The vendor's error never reaches the client.",
+      "blocks": [
+        {
+          "display": "curl -s -o /dev/null -D - -H 'content-type: application/json' \\\n  -d @demo/flaky.json localhost:8080/v1/chat/completions \\\n  | grep -E 'HTTP|x-oxide-upstream'",
+          "output": [
+            {
+              "text": "HTTP/1.1 200 OK",
+              "kind": "header",
+              "gap": 0.475
+            },
+            {
+              "text": "x-oxide-upstream: mock_backup/gpt-4o-mini",
+              "kind": "header",
+              "gap": 0.0
+            }
+          ]
+        },
+        {
+          "display": "curl -s localhost:9090/metrics | grep '^oxide_fallback'",
+          "output": [
+            {
+              "text": "oxide_fallback_triggered_total{from_provider=\"mock_flaky\",to_provider=\"mock_backup\",reason=\"http_status_429\"} 1",
+              "kind": "out",
+              "gap": 0.055
+            },
+            {
+              "text": "oxide_fallback_triggered_total{from_provider=\"mock_primary\",to_provider=\"mock_backup\",reason=\"ttft_timeout_exceeded (800ms)\"} 1",
+              "kind": "out",
+              "gap": 0.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Serve embeddings on the same contract",
+      "caption": "The second ingress route. Which upstream serves it is a model definition like any other.",
+      "blocks": [
+        {
+          "display": "curl -s localhost:8080/v1/embeddings \\\n  -H 'content-type: application/json' -d @demo/embed.json \\\n  | python3 -m json.tool",
+          "output": [
+            {
+              "text": "{",
+              "kind": "json",
+              "gap": 0.307
+            },
+            {
+              "text": "    \"object\": \"list\",",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "    \"model\": \"text-embedding-3-small\",",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "    \"data\": [",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "        {",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "            \"object\": \"embedding\",",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "            \"index\": 0,",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "            \"embedding\": [",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "                0.0134,",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "                -0.0771,",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "                0.0523,",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "                0.0088",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "            ]",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "        }",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "    ],",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "    \"usage\": {",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "        \"prompt_tokens\": 3,",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "        \"total_tokens\": 3",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "    }",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "}",
+              "kind": "json",
+              "gap": 0.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Enforce per-tenant limits",
+      "caption": "rpm = 2 for tenant `acme`. The third request is refused by the router with the OpenAI error envelope, not a vendor error.",
+      "blocks": [
+        {
+          "display": "for i in 1 2 3; do\n  curl -s -o /dev/null -w \"request $i \u2192 %{http_code}\\n\" \\\n    -H 'X-Tenant-ID: acme' -H 'content-type: application/json' \\\n    -d @demo/small.json localhost:8080/v1/chat/completions\ndone",
+          "output": [
+            {
+              "text": "request 1 \u2192 200",
+              "kind": "out",
+              "gap": 0.052
+            },
+            {
+              "text": "request 2 \u2192 200",
+              "kind": "out",
+              "gap": 0.053
+            },
+            {
+              "text": "request 3 \u2192 429",
+              "kind": "out",
+              "gap": 0.045
+            }
+          ]
+        },
+        {
+          "display": "curl -s -H 'X-Tenant-ID: acme' -H 'content-type: application/json' \\\n  -d @demo/small.json localhost:8080/v1/chat/completions \\\n  | python3 -m json.tool",
+          "output": [
+            {
+              "text": "{",
+              "kind": "json",
+              "gap": 0.294
+            },
+            {
+              "text": "    \"error\": {",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "        \"message\": \"rate limit exceeded for tenant 'acme': requests per minute limit of 2 exceeded\",",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "        \"type\": \"rate_limit_error\",",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "        \"param\": null,",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "        \"code\": \"rate_limit_exceeded\"",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "    }",
+              "kind": "json",
+              "gap": 0.0
+            },
+            {
+              "text": "}",
+              "kind": "json",
+              "gap": 0.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Read the metrics",
+      "caption": "Every fallback and every refusal is labelled with its reason, so an operator can tell a router 429 from a vendor 429.",
+      "blocks": [
+        {
+          "display": "curl -s localhost:9090/metrics \\\n  | grep -E '^oxide_(fallback|rate_limited)'",
+          "output": [
+            {
+              "text": "oxide_rate_limited_total{tenant=\"acme\",reason=\"rpm\"} 2",
+              "kind": "out",
+              "gap": 0.065
+            },
+            {
+              "text": "oxide_fallback_triggered_total{from_provider=\"mock_flaky\",to_provider=\"mock_backup\",reason=\"http_status_429\"} 1",
+              "kind": "out",
+              "gap": 0.0
+            },
+            {
+              "text": "oxide_fallback_triggered_total{from_provider=\"mock_primary\",to_provider=\"mock_backup\",reason=\"ttft_timeout_exceeded (800ms)\"} 1",
+              "kind": "out",
+              "gap": 0.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Add a model without a restart",
+      "caption": "Saving the file wakes the watcher, which validates and swaps the config atomically. In-flight streams keep the config they started on.",
+      "blocks": [
+        {
+          "display": "curl -s -w '\\nstatus=%{http_code}\\n' \\\n  -H 'content-type: application/json' \\\n  -d '{\"model\":\"fast-chat\",\"messages\":[]}' \\\n  localhost:8080/v1/chat/completions",
+          "output": [
+            {
+              "text": "{\"error\":{\"message\":\"invalid request: unknown model `fast-chat`\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"invalid_request\"}}",
+              "kind": "json",
+              "gap": 0.058
+            },
+            {
+              "text": "status=400",
+              "kind": "json",
+              "gap": 0.0
+            }
+          ]
+        },
+        {
+          "display": "cat >> demo/oxide.toml <<'EOF'\n[models.\"fast-chat\"]\nprimary = \"mock_backup/gpt-4o-mini\"\nEOF",
+          "output": [
+            {
+              "text": "2026-11-01T13:20:15.013835Z  INFO oxide_route::config::watcher: configuration reloaded config=demo/oxide.toml",
+              "kind": "log",
+              "gap": 0.0
+            }
+          ]
+        },
+        {
+          "display": "curl -s -w '\\nstatus=%{http_code}\\n' \\\n  -H 'content-type: application/json' \\\n  -d '{\"model\":\"fast-chat\",\"messages\":[]}' \\\n  localhost:8080/v1/chat/completions",
+          "output": [
+            {
+              "text": "{\"id\": \"chatcmpl-demo\", \"object\": \"chat.completion\", \"created\": 1793539216, \"model\": \"gpt-4o-mini\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"A circuit breaker has three states: closed, open, and half-open.\"}, \"finish_reason\": \"stop\"}], \"usage\": {\"prompt_tokens\": 12, \"completion_tokens\": 28, \"total_tokens\": 40}}",
+              "kind": "json",
+              "gap": 0.085
+            },
+            {
+              "text": "status=200",
+              "kind": "json",
+              "gap": 0.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Shut down without dropping a stream",
+      "caption": "SIGTERM stops accepting, drains in-flight requests, and exits at the deadline instead of waiting for an orchestrator to SIGKILL it.",
+      "blocks": [
+        {
+          "display": "kill -TERM %1",
+          "output": [
+            {
+              "text": "2026-11-01T13:20:16.251636Z  INFO oxide: shutting down; draining in-flight requests drain_ms=5000",
+              "kind": "log",
+              "gap": 0.0
+            },
+            {
+              "text": "2026-11-01T13:20:16.253692Z  INFO oxide: shutdown complete",
+              "kind": "log",
+              "gap": 0.0
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

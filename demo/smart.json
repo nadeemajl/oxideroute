@@ -1,0 +1,10 @@
+{
+  "model": "smart-router",
+  "stream": true,
+  "messages": [
+    {
+      "role": "user",
+      "content": "Summarise the failover behaviour."
+    }
+  ]
+}

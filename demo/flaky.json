@@ -1,0 +1,10 @@
+{
+  "model": "flaky-router",
+  "stream": true,
+  "messages": [
+    {
+      "role": "user",
+      "content": "This upstream returns 429."
+    }
+  ]
+}

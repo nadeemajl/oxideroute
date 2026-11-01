@@ -6,6 +6,7 @@ other documents:
 
 | Document | Answers |
 |---|---|
+| [`demo/oxide-demo.mp4`](../demo/oxide-demo.mp4) | "What does it look like running?" |
 | [`overview.html`](overview.html) | "What is this, in one page?" |
 | [`README.md`](../README.md) | "How do I run it?" |
 | **This guide** | "How does it behave, feature by feature?" |

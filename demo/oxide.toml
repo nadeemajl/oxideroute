@@ -1,0 +1,72 @@
+# Demo configuration for demo/record.py — not a production example.
+#
+# Every upstream points at demo/mock_upstream.py, which selects behaviour from
+# the URL prefix, so one loopback process can play a healthy provider, a
+# provider that stalls after its 200, and a provider that returns 429.
+
+listen = "127.0.0.1:8080"
+admin_listen = "127.0.0.1:9090"
+graceful_shutdown_timeout_ms = 5000
+
+[telemetry]
+log_payloads = false
+redact_pii = true
+
+[resiliency.circuit_breaker]
+consecutive_failures_threshold = 3
+cooldown_seconds = 10
+
+# Requests without X-Tenant-ID are not rate limited at all (no default block).
+# A caller that sends `X-Tenant-ID: acme` gets this budget, which the demo
+# deliberately exceeds to show the 429 shape.
+[rate_limits.acme]
+match_header = "X-Tenant-ID"
+rpm = 2
+tpm = 100000
+daily_budget_usd = 5.00
+burst_multiplier = 1.0
+
+[providers.mock_primary]
+type = "openai_compatible"
+base_url = "http://127.0.0.1:9101/stall/v1"
+# Short enough for a demo; production default is 2500 ms.
+ttft_timeout_ms = 800
+
+[providers.mock_backup]
+type = "openai_compatible"
+base_url = "http://127.0.0.1:9101/ok/v1"
+ttft_timeout_ms = 2500
+
+[providers.mock_flaky]
+type = "openai_compatible"
+base_url = "http://127.0.0.1:9101/flaky/v1"
+ttft_timeout_ms = 2500
+
+[providers.mock_embeddings]
+type = "openai_compatible"
+base_url = "http://127.0.0.1:9101/ok/v1"
+
+# Primary stalls post-header, so every request to this model exercises the
+# pre-first-token watchdog and the fallback path.
+[models."smart-router"]
+primary = "mock_primary/gpt-4o-mini"
+fallbacks = ["mock_backup/gpt-4o-mini"]
+retry_on_status = [429, 500, 502, 503, 504, 529]
+
+[models."gpt-4o-mini"]
+primary = "mock_backup/gpt-4o-mini"
+
+# Primary answers 429; the status is in retry_on_status, so it fails over.
+[models."flaky-router"]
+primary = "mock_flaky/gpt-4o-mini"
+fallbacks = ["mock_backup/gpt-4o-mini"]
+retry_on_status = [429, 500, 502, 503, 504, 529]
+
+[models."embed-small"]
+primary = "mock_embeddings/text-embedding-3-small"
+
+[[rules]]
+name = "long-prompts-to-the-big-model"
+priority = 10
+condition = { min_estimated_tokens = 2000 }
+route_to = "smart-router"

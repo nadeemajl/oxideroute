@@ -15,9 +15,11 @@ The defining property: **no downstream headers are sent until an upstream has
 produced a first content frame.** A provider that accepts the connection, returns
 `200`, and then stalls can still be replaced transparently.
 
-**New here?** Start with the [one-page overview](docs/overview.png) — or open
-[`docs/overview.html`](docs/overview.html) in a browser for the live page. Then
-the [walkthrough](docs/GUIDE.md) takes each feature in turn.
+**New here?** Watch the [demo](demo/oxide-demo.mp4) first — a real
+server streaming, failing over, rate-limiting and hot-reloading. Then the
+[one-page overview](docs/overview.png) (or
+[`docs/overview.html`](docs/overview.html) in a browser), and the
+[walkthrough](docs/GUIDE.md) takes each feature in turn.
 
 ## Quickstart
 
@@ -204,6 +206,7 @@ provider unit tests and the integration suites.
 
 ## Documentation
 
+- [`demo/oxide-demo.mp4`](demo/oxide-demo.mp4) — **demo video**: startup, streaming, failover, limits, reload ([how it is made](demo/README.md))
 - [`docs/overview.html`](docs/overview.html) — one-page overview ([rendered](docs/overview.png))
 - [`docs/GUIDE.md`](docs/GUIDE.md) — **walkthrough**: how each feature behaves, with diagrams
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — module layout, traits, concurrency invariants

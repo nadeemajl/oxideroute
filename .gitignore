@@ -21,3 +21,7 @@
 .vscode/
 *.swp
 .DS_Store
+
+# Python cache from the demo harness
+__pycache__/
+*.pyc

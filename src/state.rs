@@ -70,6 +70,15 @@ impl UpstreamHealthMetrics {
         self.total_failures.load(Ordering::Relaxed)
     }
 
+    /// Epoch milliseconds at which the breaker may be probed again; `0` when
+    /// the breaker has never tripped.
+    ///
+    /// Read by the admin surface to render the cooldown countdown, which is the
+    /// one piece of breaker state a client cannot derive from `is_healthy`.
+    pub fn circuit_open_until_ms(&self) -> u64 {
+        self.circuit_open_until_ms.load(Ordering::Relaxed)
+    }
+
     /// Whether the circuit breaker currently admits traffic.
     ///
     /// Once `circuit_open_until_ms` has passed the upstream is half-open: the

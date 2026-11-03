@@ -10,6 +10,7 @@
 //! * Milestone 4 — routing, fallback execution, rate limiting, hot reload.
 //! * Milestone 5 — Prometheus metrics, tracing with PII redaction, CLI.
 
+pub mod admin;
 pub mod config;
 pub mod error;
 pub mod providers;

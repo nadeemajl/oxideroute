@@ -197,7 +197,14 @@ async fn serve(path: PathBuf) -> Result<(), RouterError> {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     tokio::spawn(watch_signals(shutdown_tx, drain));
 
+    // `TCP_NODELAY` is off by default in `axum::serve`, which is wrong for a
+    // streaming gateway: the header block and the first SSE frame are written
+    // as separate small segments, and Nagle holds the second one until the
+    // client ACKs the first. On loopback that showed up as ~30 ms of extra
+    // time-to-first-token while end-to-end latency stayed flat (see
+    // docs/BENCHMARK_REPORT.md).
     let public_server = axum::serve(public_listener, public_app)
+        .tcp_nodelay(true)
         .with_graceful_shutdown(wait_for_shutdown(shutdown_rx.clone()));
 
     tracing::info!(address = %listen, config = %path.display(), "oxide serving");
@@ -207,6 +214,7 @@ async fn serve(path: PathBuf) -> Result<(), RouterError> {
             Some(admin_listener) => {
                 let admin_app = build_admin_router(Arc::clone(&state), metrics.clone());
                 let admin_server = axum::serve(admin_listener, admin_app)
+                    .tcp_nodelay(true)
                     .with_graceful_shutdown(wait_for_shutdown(shutdown_rx.clone()));
 
                 tracing::info!(

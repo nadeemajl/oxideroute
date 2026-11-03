@@ -10,6 +10,11 @@ default-run = "oxide"
 name = "oxide"
 path = "src/main.rs"
 
+# Benchmark driver; see bench/run.sh and docs/BENCHMARK_REPORT.md.
+[[bin]]
+name = "loadgen"
+path = "tools/loadgen.rs"
+
 [dependencies]
 # Async Runtime & HTTP Proxy Layer
 tokio = { version = "1.40", features = ["full"] }

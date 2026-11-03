@@ -1,0 +1,23 @@
+# TYPE oxide_requests_total counter
+oxide_requests_total{provider="lmstudio",model="/home/nadeem/.lmstudio/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf",status="success"} 32
+
+# TYPE oxide_tokens_total counter
+oxide_tokens_total{tenant="anonymous",provider="lmstudio",token_type="prompt"} 2144
+
+# TYPE oxide_breaker_open gauge
+oxide_breaker_open{upstream="lmstudio//home/nadeem/.lmstudio/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf"} 0
+
+# TYPE oxide_inflight_requests gauge
+oxide_inflight_requests 0
+
+# TYPE oxide_ttft_seconds summary
+oxide_ttft_seconds{provider="lmstudio",model="/home/nadeem/.lmstudio/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf",quantile="0"} 0.194283253
+oxide_ttft_seconds{provider="lmstudio",model="/home/nadeem/.lmstudio/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf",quantile="0.5"} 0.46761965918257165
+oxide_ttft_seconds{provider="lmstudio",model="/home/nadeem/.lmstudio/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf",quantile="0.9"} 0.5585003649973027
+oxide_ttft_seconds{provider="lmstudio",model="/home/nadeem/.lmstudio/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf",quantile="0.95"} 0.6045324034283376
+oxide_ttft_seconds{provider="lmstudio",model="/home/nadeem/.lmstudio/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf",quantile="0.99"} 0.6050162228546597
+oxide_ttft_seconds{provider="lmstudio",model="/home/nadeem/.lmstudio/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf",quantile="0.999"} 0.6050162228546597
+oxide_ttft_seconds{provider="lmstudio",model="/home/nadeem/.lmstudio/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf",quantile="1"} 0.723337266
+oxide_ttft_seconds_sum{provider="lmstudio",model="/home/nadeem/.lmstudio/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf"} 13.747542364000001
+oxide_ttft_seconds_count{provider="lmstudio",model="/home/nadeem/.lmstudio/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf"} 32
+

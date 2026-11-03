@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="340" viewBox="0 0 780 340" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+<rect width="780" height="340" fill="#ffffff"/>
+<text x="78" y="28" font-size="15" font-weight="600" fill="#1f2328">Loopback: time to first content frame (router, before/after the fix)</text>
+<line x1="78" y1="282.0" x2="630" y2="282.0" stroke="#e6e8eb"/>
+<text x="68" y="286.0" font-size="11" fill="#6e7781" text-anchor="end">0</text>
+<line x1="78" y1="206.0" x2="630" y2="206.0" stroke="#e6e8eb"/>
+<text x="68" y="210.0" font-size="11" fill="#6e7781" text-anchor="end">50</text>
+<line x1="78" y1="130.0" x2="630" y2="130.0" stroke="#e6e8eb"/>
+<text x="68" y="134.0" font-size="11" fill="#6e7781" text-anchor="end">100</text>
+<line x1="78" y1="54.0" x2="630" y2="54.0" stroke="#e6e8eb"/>
+<text x="68" y="58.0" font-size="11" fill="#6e7781" text-anchor="end">150</text>
+<text x="170.0" y="304" font-size="11" fill="#6e7781" text-anchor="middle">direct</text>
+<rect x="141.0" y="203.6" width="26.0" height="78.4" fill="#2f6feb" rx="2"/>
+<text x="154.0" y="198.6" font-size="10" fill="#6e7781" text-anchor="middle">51.6</text>
+<rect x="173.0" y="197.1" width="26.0" height="84.9" fill="#8c959f" rx="2"/>
+<text x="186.0" y="192.1" font-size="10" fill="#6e7781" text-anchor="middle">55.8</text>
+<text x="354.0" y="304" font-size="11" fill="#6e7781" text-anchor="middle">Nagle on</text>
+<rect x="325.0" y="154.8" width="26.0" height="127.2" fill="#2f6feb" rx="2"/>
+<text x="338.0" y="149.8" font-size="10" fill="#6e7781" text-anchor="middle">83.7</text>
+<rect x="357.0" y="138.2" width="26.0" height="143.8" fill="#8c959f" rx="2"/>
+<text x="370.0" y="133.2" font-size="10" fill="#6e7781" text-anchor="middle">94.6</text>
+<text x="538.0" y="304" font-size="11" fill="#6e7781" text-anchor="middle">TCP_NODELAY</text>
+<rect x="509.0" y="202.6" width="26.0" height="79.4" fill="#2f6feb" rx="2"/>
+<text x="522.0" y="197.6" font-size="10" fill="#6e7781" text-anchor="middle">52.2</text>
+<rect x="541.0" y="197.1" width="26.0" height="84.9" fill="#8c959f" rx="2"/>
+<text x="554.0" y="192.1" font-size="10" fill="#6e7781" text-anchor="middle">55.9</text>
+<line x1="78" y1="282" x2="630" y2="282" stroke="#6e7781"/>
+<text x="354" y="328" font-size="11" fill="#6e7781" text-anchor="middle">topology (400 requests, 8 in flight)</text>
+<rect x="648" y="55" width="16" height="14" fill="#2f6feb" rx="2"/>
+<text x="672" y="66" font-size="11" fill="#1f2328">p50</text>
+<rect x="648" y="77" width="16" height="14" fill="#8c959f" rx="2"/>
+<text x="672" y="88" font-size="11" fill="#1f2328">p99</text></svg>

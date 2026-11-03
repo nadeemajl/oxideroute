@@ -1,0 +1,23 @@
+# Loopback topology used to isolate the gateway's own cost.
+#
+# `demo/mock_upstream.py --port 9101` serves the `/ok/` behaviour: four content
+# frames paced 50 ms apart, then a finish frame and `[DONE]`. The pacing is
+# constant, so the direct-vs-router delta is the gateway's latency with none of
+# the LAN jitter from the real model.
+
+listen = "127.0.0.1:8087"
+admin_listen = "127.0.0.1:9098"
+graceful_shutdown_timeout_ms = 2_000
+
+[telemetry]
+log_payloads = false
+redact_pii = false
+
+[providers.mock]
+type = "openai_compatible"
+base_url = "http://127.0.0.1:9101/ok/v1"
+timeout_ms = 30_000
+ttft_timeout_ms = 10_000
+
+[models."fast-local"]
+primary = "mock/loopback-model"

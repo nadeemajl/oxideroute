@@ -214,3 +214,4 @@ provider unit tests and the integration suites.
 - [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) — build order
 - [`docs/TESTING_AND_BENCHMARKS.md`](docs/TESTING_AND_BENCHMARKS.md) — mock server, chaos scenarios, budgets
 - [`docs/STRESS_TEST_PLAN.md`](docs/STRESS_TEST_PLAN.md) — capacity, overload, soak, and lifecycle campaigns
+- [`docs/BENCHMARK_REPORT.md`](docs/BENCHMARK_REPORT.md) — **measured**: a 27 B local model through the router, with charts

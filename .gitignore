@@ -25,3 +25,6 @@
 # Python cache from the demo harness
 __pycache__/
 *.pyc
+
+# Benchmark runs: raw JSON is committed, logs are not
+/bench/results/*.log

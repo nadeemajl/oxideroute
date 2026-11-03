@@ -1,0 +1,33 @@
+# Benchmark configuration: OxideRoute in front of a local LM Studio server
+# (llama.cpp, Qwen3.8-27B Q4_K_M) on the LAN.
+#
+# `bench/run.sh` starts the release binary with this file, then drives it with
+# `target/release/loadgen`. Nothing here is production-shaped: the timeouts
+# are deliberately generous so the pre-first-token watchdog never converts a
+# slow-but-healthy decode into a false failover, which would corrupt the
+# latency samples.
+#
+# The upstream model id is an absolute path, so the `provider/model` reference
+# contains a second slash; `split_once('/')` keeps the rest verbatim.
+
+listen = "127.0.0.1:8088"
+admin_listen = "127.0.0.1:9099"
+graceful_shutdown_timeout_ms = 5_000
+
+[telemetry]
+log_payloads = false
+redact_pii = false
+
+[resiliency.circuit_breaker]
+consecutive_failures_threshold = 5
+cooldown_seconds = 5
+
+[providers.lmstudio]
+type = "openai_compatible"
+base_url = "http://192.168.68.61:8080/v1"
+# A 27B model on a laptop GPU can queue for seconds under load.
+timeout_ms = 600_000
+ttft_timeout_ms = 60_000
+
+[models."qwen-local"]
+primary = "lmstudio//home/nadeem/.lmstudio/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf"

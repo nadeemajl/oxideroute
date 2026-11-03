@@ -519,3 +519,4 @@ surface as documentation of behaviour.
 - Internals and concurrency invariants: [`ARCHITECTURE.md`](ARCHITECTURE.md)
 - Correctness tests: [`TESTING_AND_BENCHMARKS.md`](TESTING_AND_BENCHMARKS.md)
 - Capacity and soak campaigns: [`STRESS_TEST_PLAN.md`](STRESS_TEST_PLAN.md)
+- Measured latency and throughput: [`BENCHMARK_REPORT.md`](BENCHMARK_REPORT.md)

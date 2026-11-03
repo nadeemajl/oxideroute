@@ -1,0 +1,181 @@
+{
+  "label": "direct-nostream-c4",
+  "url": "http://192.168.68.61:8080/v1/chat/completions",
+  "model": "/home/nadeem/.lmstudio/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf",
+  "stream": false,
+  "max_tokens": 64,
+  "concurrency": 4,
+  "requested": 12,
+  "succeeded": 12,
+  "failed": 0,
+  "statuses": {
+    "200": 12
+  },
+  "wall_seconds": 9.449310617,
+  "requests_per_second": 1.269933912259284,
+  "completion_tokens": 768,
+  "output_tokens_per_second": 81.27577038459418,
+  "ttft_ms": {
+    "count": 12,
+    "min": 2969.195589,
+    "p50": 3087.631066,
+    "p90": 3187.728952,
+    "p99": 3187.764044,
+    "max": 3187.764044,
+    "mean": 3105.076533916667
+  },
+  "headers_ms": {
+    "count": 12,
+    "min": 2969.155276,
+    "p50": 3087.5671709999997,
+    "p90": 3187.6962519999997,
+    "p99": 3187.724499,
+    "max": 3187.724499,
+    "mean": 3105.0359636666667
+  },
+  "total_ms": {
+    "count": 12,
+    "min": 2969.195589,
+    "p50": 3087.631066,
+    "p90": 3187.728952,
+    "p99": 3187.764044,
+    "max": 3187.764044,
+    "mean": 3105.076533916667
+  },
+  "itl_ms": null,
+  "per_request": [
+    {
+      "index": 0,
+      "status": 200,
+      "headers_ms": 2970.75743,
+      "ttft_ms": 2970.797515,
+      "total_ms": 2970.797515,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 1,
+      "status": 200,
+      "headers_ms": 3187.724499,
+      "ttft_ms": 3187.764044,
+      "total_ms": 3187.764044,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 2,
+      "status": 200,
+      "headers_ms": 2969.155276,
+      "ttft_ms": 2969.195589,
+      "total_ms": 2969.195589,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 3,
+      "status": 200,
+      "headers_ms": 3187.6962519999997,
+      "ttft_ms": 3187.728952,
+      "total_ms": 3187.728952,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 4,
+      "status": 200,
+      "headers_ms": 3087.346181,
+      "ttft_ms": 3087.382899,
+      "total_ms": 3087.382899,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 5,
+      "status": 200,
+      "headers_ms": 3187.517584,
+      "ttft_ms": 3187.556164,
+      "total_ms": 3187.556164,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 6,
+      "status": 200,
+      "headers_ms": 3053.673958,
+      "ttft_ms": 3053.714438,
+      "total_ms": 3053.714438,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 7,
+      "status": 200,
+      "headers_ms": 3174.043387,
+      "ttft_ms": 3174.0866,
+      "total_ms": 3174.0866,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 8,
+      "status": 200,
+      "headers_ms": 3173.581865,
+      "ttft_ms": 3173.620328,
+      "total_ms": 3173.620328,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 9,
+      "status": 200,
+      "headers_ms": 3173.839298,
+      "ttft_ms": 3173.8703259999997,
+      "total_ms": 3173.8703259999997,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 10,
+      "status": 200,
+      "headers_ms": 3007.528663,
+      "ttft_ms": 3007.570486,
+      "total_ms": 3007.570486,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 11,
+      "status": 200,
+      "headers_ms": 3087.5671709999997,
+      "ttft_ms": 3087.631066,
+      "total_ms": 3087.631066,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    }
+  ],
+  "started_unix_ms": 1793663679514
+}

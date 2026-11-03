@@ -1,0 +1,181 @@
+{
+  "label": "router-nostream-c4",
+  "url": "http://127.0.0.1:8088/v1/chat/completions",
+  "model": "qwen-local",
+  "stream": false,
+  "max_tokens": 64,
+  "concurrency": 4,
+  "requested": 12,
+  "succeeded": 12,
+  "failed": 0,
+  "statuses": {
+    "200": 12
+  },
+  "wall_seconds": 9.318311751,
+  "requests_per_second": 1.2877869211353885,
+  "completion_tokens": 768,
+  "output_tokens_per_second": 82.41836295266486,
+  "ttft_ms": {
+    "count": 12,
+    "min": 3038.1299839999997,
+    "p50": 3074.027228,
+    "p90": 3173.518112,
+    "p99": 3173.602981,
+    "max": 3173.602981,
+    "mean": 3105.3831093333333
+  },
+  "headers_ms": {
+    "count": 12,
+    "min": 3038.0723820000003,
+    "p50": 3073.992424,
+    "p90": 3173.4813860000004,
+    "p99": 3173.555595,
+    "max": 3173.555595,
+    "mean": 3105.3419316666664
+  },
+  "total_ms": {
+    "count": 12,
+    "min": 3038.1299839999997,
+    "p50": 3074.027228,
+    "p90": 3173.518112,
+    "p99": 3173.602981,
+    "max": 3173.602981,
+    "mean": 3105.3831093333333
+  },
+  "itl_ms": null,
+  "per_request": [
+    {
+      "index": 0,
+      "status": 200,
+      "headers_ms": 3173.555595,
+      "ttft_ms": 3173.602981,
+      "total_ms": 3173.602981,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 1,
+      "status": 200,
+      "headers_ms": 3173.214206,
+      "ttft_ms": 3173.258879,
+      "total_ms": 3173.258879,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 2,
+      "status": 200,
+      "headers_ms": 3173.4813860000004,
+      "ttft_ms": 3173.518112,
+      "total_ms": 3173.518112,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 3,
+      "status": 200,
+      "headers_ms": 3070.620742,
+      "ttft_ms": 3070.6564850000004,
+      "total_ms": 3070.6564850000004,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 4,
+      "status": 200,
+      "headers_ms": 3173.2426259999997,
+      "ttft_ms": 3173.291741,
+      "total_ms": 3173.291741,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 5,
+      "status": 200,
+      "headers_ms": 3070.54432,
+      "ttft_ms": 3070.57742,
+      "total_ms": 3070.57742,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 6,
+      "status": 200,
+      "headers_ms": 3074.381555,
+      "ttft_ms": 3074.4224010000003,
+      "total_ms": 3074.4224010000003,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 7,
+      "status": 200,
+      "headers_ms": 3038.0723820000003,
+      "ttft_ms": 3038.1299839999997,
+      "total_ms": 3038.1299839999997,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 8,
+      "status": 200,
+      "headers_ms": 3073.917,
+      "ttft_ms": 3073.9546020000002,
+      "total_ms": 3073.9546020000002,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 9,
+      "status": 200,
+      "headers_ms": 3070.449747,
+      "ttft_ms": 3070.4891239999997,
+      "total_ms": 3070.4891239999997,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 10,
+      "status": 200,
+      "headers_ms": 3073.992424,
+      "ttft_ms": 3074.027228,
+      "total_ms": 3074.027228,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    },
+    {
+      "index": 11,
+      "status": 200,
+      "headers_ms": 3098.631197,
+      "ttft_ms": 3098.6683550000002,
+      "total_ms": 3098.6683550000002,
+      "itl_ms": [],
+      "completion_tokens": 64,
+      "chunks": 1,
+      "error": null
+    }
+  ],
+  "started_unix_ms": 1793663692438
+}

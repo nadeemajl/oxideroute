@@ -413,6 +413,36 @@ Set `admin_listen` and `/metrics` disappears from the public port entirely. Leav
 it unset and the scrape endpoint falls back to the ingress with a startup warning
 — useful for a laptop, not for production.
 
+### Admin API and UI clients
+
+`src/admin` holds the surface a UI is built on, and it follows one rule: it
+carries only what Prometheus cannot express. Rates, p99 TTFT, the rejection split
+and the inflight gauge already live on `/metrics`, so the admin view answers the
+questions a scrape cannot — which config generation is live, what the health table
+looks like right now, how much budget each tenant has left, and why a given
+request would route where it does.
+
+| View | What it adds over `/metrics` |
+|---|---|
+| `AdminSnapshot` | config, secrets posture, health, tenants and last reload in one round trip |
+| `RedactedConfig` | the live document with every key masked and URL userinfo stripped |
+| `HealthSnapshot` | `ewma_ttft_us` against that provider's `ttft_timeout_ms`, breaker phase and countdown, orphans from a previous reload |
+| `RouteExplain` | the attempt order from the real resolver, labelled `primary`/`target`/`fallback`, with no upstream call |
+
+Two behaviours the UI must surface rather than hide. A rejected reload leaves the
+previous generation serving, so `last_reload.outcome` and `config_generation` are
+the source of truth. And because `apply_config` preserves the health table and the
+spend ledger, reloading quotas neither closes an open breaker nor forgives a spent
+daily budget.
+
+`ewma_ttft_us: null` means "never observed", not "fast" — the route map should
+draw those nodes hollow. `ttft_headroom_pct` is the failover-risk bar: past ~90%
+of a provider's watchdog, a fallback storm is already forming.
+
+The types, snapshots and apply path are implemented and tested; the HTTP handlers
+and the `oxide top` TUI are the remaining wiring. The full contract is
+[`ADMIN_API.md`](ADMIN_API.md).
+
 ### Metrics
 
 | Metric | Type | Labels |
@@ -504,6 +534,7 @@ Documentation that hides these would be worse than none:
 | Error-rate breaker | only the consecutive-failure trigger is wired | `error_rate_threshold_pct`, `window_seconds`, `active_probe_interval_seconds` are accepted but inert |
 | `GET /v1/models` | absent | OpenAI SDK model-listing calls fail |
 | Oversized bodies | axum's `413` | not the OpenAI envelope |
+| Admin API / UI | types, contract and apply path landed; **HTTP handlers not wired** | `admin_listen` still serves only `/metrics` and `/healthz`; no `oxide top` yet |
 | Streaming usage | not billed | a streamed request is charged on the prompt estimate only |
 | Bedrock | implemented, not tested against live AWS | SigV4 is verified against AWS's published test vector, not a real account |
 
@@ -517,6 +548,7 @@ surface as documentation of behaviour.
 - Run it: [`README.md`](../README.md)
 - Config syntax and SSE frames: [`SPECS_AND_SCHEMAS.md`](SPECS_AND_SCHEMAS.md)
 - Internals and concurrency invariants: [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- Admin API contract, redaction and reload semantics: [`ADMIN_API.md`](ADMIN_API.md)
 - Correctness tests: [`TESTING_AND_BENCHMARKS.md`](TESTING_AND_BENCHMARKS.md)
 - Capacity and soak campaigns: [`STRESS_TEST_PLAN.md`](STRESS_TEST_PLAN.md)
 - Measured latency and throughput: [`BENCHMARK_REPORT.md`](BENCHMARK_REPORT.md)

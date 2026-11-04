@@ -69,6 +69,24 @@ Set `admin_listen` to keep `/metrics` off the public ingress; the scrape payload
 exposes per-tenant and per-upstream traffic shape. If it is unset, `/metrics`
 falls back to the ingress listener and `serve` logs a warning at startup.
 
+### Admin API
+
+`src/admin` defines the operator-facing surface that the planned `oxide top` TUI
+and an embedded SPA will share: a redacted config view, the live health table
+with breaker phase and cooldown, tenant budgets, the last reload's diagnostics,
+and a route X-ray that runs the real resolver without contacting an upstream.
+
+The contract — paths, JSON shapes, redaction and reload semantics — is
+[`docs/ADMIN_API.md`](docs/ADMIN_API.md). The types, snapshots, validation, and
+apply logic are implemented and tested; binding the handlers onto `admin_listen`
+is the remaining step, and until then the routes above are the complete set.
+
+Two properties are worth knowing before a UI exists. Redaction is by
+construction: `RedactedConfig` masks every key and strips URL userinfo, so an
+admin response cannot leak a secret even if one was pasted into the file. And a
+reload preserves breaker state and accrued spend — applying new quotas does not
+forgive a spent daily budget, which the Apply flow is required to say out loud.
+
 Errors always use the OpenAI envelope, with extra diagnostics under
 `oxide_metadata`:
 
@@ -210,6 +228,7 @@ provider unit tests and the integration suites.
 - [`docs/overview.html`](docs/overview.html) — one-page overview ([rendered](docs/overview.png))
 - [`docs/GUIDE.md`](docs/GUIDE.md) — **walkthrough**: how each feature behaves, with diagrams
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — module layout, traits, concurrency invariants
+- [`docs/ADMIN_API.md`](docs/ADMIN_API.md) — admin API contract for the TUI and SPA: endpoints, redaction, reload semantics
 - [`docs/SPECS_AND_SCHEMAS.md`](docs/SPECS_AND_SCHEMAS.md) — config syntax, protocol translation, error schema
 - [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) — build order
 - [`docs/TESTING_AND_BENCHMARKS.md`](docs/TESTING_AND_BENCHMARKS.md) — mock server, chaos scenarios, budgets

@@ -6,8 +6,9 @@
 Always consult the companion specifications in `docs/` before implementing or modifying modules:
 - `docs/ARCHITECTURE.md` — Crate stack, module hierarchy, concurrency invariants, and core Rust traits.
 - `docs/SPECS_AND_SCHEMAS.md` — TOML configuration syntax, environment interpolation, SSE chunk translation state machines, and unified error schemas.
-- `docs/IMPLEMENTATION_PLAN.md` — Sequential 5-milestone build order with file-level deliverables and verification commands.
+- `docs/IMPLEMENTATION_PLAN.md` — Sequential 6-milestone build order with file-level deliverables and verification commands.
 - `docs/TESTING_AND_BENCHMARKS.md` — Deterministic in-process mock SSE server specifications, chaos test scenarios, and latency budgets.
+- `docs/ADMIN_API.md` — The admin API contract shared by the TUI and the SPA: endpoints, redaction rules, reload semantics, and the gaps still to close.
 
 ---
 
@@ -31,7 +32,8 @@ oxide-route/
 │   ├── ARCHITECTURE.md
 │   ├── SPECS_AND_SCHEMAS.md
 │   ├── IMPLEMENTATION_PLAN.md
-│   └── TESTING_AND_BENCHMARKS.md
+│   ├── TESTING_AND_BENCHMARKS.md
+│   └── ADMIN_API.md
 ├── examples/
 │   ├── minimal.toml
 │   └── production.toml
@@ -40,12 +42,14 @@ oxide-route/
 │   ├── lib.rs                  # Library root exporting AppState, server builder, and config types
 │   ├── error.rs                # RouterError enum, AttemptRecord, OpenAI-normalized JSON error response
 │   ├── state.rs                # AppState (ArcSwap<RouterConfig>, DashMap providers & health metrics)
+│   ├── admin/
+│   │   └── mod.rs              # AdminState, redacted config view, health/tenant snapshots, route X-ray
 │   ├── config/
 │   │   ├── mod.rs              # RouterConfig, ProviderConfig, VirtualModelConfig, RoutingRule
 │   │   ├── loader.rs           # TOML parsing, ${ENV_VAR} interpolation, semantic validation
 │   │   └── watcher.rs          # notify file watcher + SIGHUP handler for atomic ArcSwap reload
 │   ├── proxy/
-│   │   ├── mod.rs              # Axum router setup (/v1/chat/completions, /v1/embeddings, /metrics)
+│   │   ├── mod.rs              # Axum routers: ingress (/v1/chat/completions, /v1/embeddings) + admin (/metrics, /healthz)
 │   │   ├── inspector.rs        # Zero-copy Bytes capture + simd-json metadata extraction + token est.
 │   │   ├── router_engine.rs    # Rule evaluator, EWMA selector, weighted random & fallback planner
 │   │   ├── executor.rs         # Pre-first-token TTFT timeout watchdog & fallback execution loop
@@ -88,3 +92,9 @@ oxide-route/
 5. **Diagnostic Clarity (`miette` + `schemars`):**
    - All configuration structs in `src/config/mod.rs` must derive `serde::Deserialize`, `serde::Serialize`, and `schemars::JsonSchema`.
    - Configuration validation errors must return descriptive diagnostics (missing environment variables, unknown upstream references in `fallbacks`, or circular routing rules).
+
+6. **Admin Surface Is Read-Only and Secret-Free:**
+   - `AdminState` defaults to `WritePolicy::ReadOnly`; the `apply` handler returns `403` unless the surface was explicitly built with `WritePolicy::ReadWrite`.
+   - Every admin response goes through `RedactedConfig` (or the `SecretStatus` rows), which masks API keys and URL userinfo by construction. Never serialize a `ProviderConfig` directly to an admin client.
+   - The admin API carries only state Prometheus cannot express: configuration, health/breaker phase, tenant budgets, reload diagnostics, and the route X-ray. Counters and the inflight gauge stay on `/metrics`.
+   - All reload paths (watcher, `SIGHUP`, manual apply) funnel through `AdminState::note_reload`, so `last_reload` cannot disagree with the config actually serving.

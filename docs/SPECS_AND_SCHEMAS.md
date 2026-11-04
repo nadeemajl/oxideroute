@@ -25,7 +25,7 @@ fallbacks = ["anthropic/claude-3-7-sonnet-latest"]
 ```toml
 #:schema https://schema.oxideroute.dev/v1/oxide.schema.json
 listen = "0.0.0.0:8080"
-admin_listen = "127.0.0.1:9090"   # serves /metrics and /healthz; must differ from `listen`
+admin_listen = "127.0.0.1:9090"   # serves /metrics and /healthz (admin API pending); must differ from `listen`
 graceful_shutdown_timeout_ms = 30000  # hard deadline for draining after SIGTERM
 
 [telemetry]
@@ -181,3 +181,27 @@ Whenever a request is rejected (e.g., 429 Tenant Rate Limit, 400 Invalid Request
   }
 }
 ```
+
+---
+
+## 4. Admin Response Schemas (`src/admin/mod.rs`)
+
+The admin surface has its own document because its schemas are a client contract
+rather than a wire-protocol translation:
+[`ADMIN_API.md`](ADMIN_API.md). In brief, every response is built from these
+types:
+
+| Type | Path | Carries |
+|---|---|---|
+| `AdminSnapshot` | `/admin/snapshot` | config generation, redacted config, secret posture, health, tenants, last reload |
+| `RedactedConfig` | `/admin/config` | the live document with keys masked and URL userinfo stripped |
+| `HealthSnapshot` | `/admin/health` | EWMA vs watchdog, breaker phase/countdown, orphans |
+| `RouteExplain` | `/admin/explain` | attempt order from the real resolver, labelled by source |
+| `ValidationReport` | `/admin/config/validate` | `miette` code, message, help, field path, 1-based source span |
+| `ReloadStatus` | `/admin/config/apply` | generation, source, `applied`/`rejected`, diagnostic |
+
+Two schema decisions are load-bearing. `ewma_ttft_us` is nullable because `0` is
+the "never observed" sentinel and a UI must not render it as instant. Rejection is
+a `200`-shaped `ReloadStatus` with `outcome: "rejected"` (HTTP `422` from the
+handler), not a transport error: the diagnostic *is* the payload the editor
+renders next to the draft.

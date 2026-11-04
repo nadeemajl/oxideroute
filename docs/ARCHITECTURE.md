@@ -205,3 +205,76 @@ pub fn build_upstream_http_client(timeout_ms: u64) -> reqwest::Client {
         .expect("Failed to initialize rustls HTTP client")
 }
 ```
+
+---
+
+## 4. Admin Surface (`src/admin`)
+
+The admin surface exists so a TUI and an embedded SPA can be two clients of one
+contract. It is **off the request path**: no handler, provider, or executor calls
+into it, and it adds no field to `AppState`.
+
+### 4.1 Composition
+
+`AdminState` borrows `Arc<AppState>` and holds only what the hot path must not
+carry:
+
+- `generation: AtomicU64` — monotonic config generation, `1` at boot, advanced
+  only when a reload is adopted.
+- `reload: ArcSwap<ReloadStatus>` — last attempt's source, outcome, timestamp,
+  and diagnostic. Every reload path (watcher, `SIGHUP`, manual apply) funnels
+  through `note_reload` so this cannot drift from what is actually serving.
+- `policy: WritePolicy` — `ReadOnly` by default; `apply` refuses otherwise.
+
+Snapshot assembly is a handful of relaxed atomic loads plus one
+`DashMap` iteration: `/admin/snapshot` is safe to poll at 1 Hz and cheap enough
+to serve from the same listener as `/metrics`.
+
+### 4.2 What it exposes, and what it deliberately does not
+
+One rule governs the payloads: **the admin API carries only what Prometheus
+cannot express.** The eight metric families already cover rates, p99 TTFT, the
+rejection split, and inflight requests; duplicating them into JSON would create a
+second registry and a second truth. What remains is configuration, the health
+table with breaker phase and countdown, tenant budgets, reload diagnostics, and
+the route X-ray. Clients fuse the two surfaces.
+
+`ewma_ttft_us` is an `Option`: `None` means never observed, which is materially
+different from zero latency. `ttft_headroom_pct` — EWMA over that provider's own
+`ttft_timeout_ms` — is the field that predicts failover before it happens.
+Health rows the active config no longer names are returned with
+`configured: false` rather than filtered, because `sync_breakers` may still be
+exporting a gauge for them.
+
+### 4.3 Secrets
+
+`RedactedConfig` masks by construction, not by `skip_serializing`: it clones the
+live document, replaces every provider key with `***redacted***`, and strips
+`user:pass@` from `base_url`. A field added to `ProviderConfig` later therefore
+still serializes, while a key pasted into the file is masked exactly like an
+interpolated one. No handler may serialize `ProviderConfig` directly.
+
+### 4.4 Reload and validation asymmetry
+
+Validation is lenient (unset `${VAR}` is a warning) so an editor works on a
+machine without production secrets. Apply is strict, because it runs inside the
+serving process and adopting a document whose placeholder stayed literal would
+install `${VAR}` as an API key. Rejection carries the `miette` code and a 1-based
+source span; the previous generation keeps serving.
+
+`AppState::apply_config` preserves the health table and the spend ledger, so a
+reload of new quotas neither closes an open breaker nor forgives a spent daily
+budget. The UI is required to state this at Apply time.
+
+### 4.5 X-ray
+
+`explain` synthesizes a chat-completions body, runs `inspect_request` and
+`resolve_candidates`, and annotates the resulting attempt order with live health.
+Estimates and ordering therefore come from the production engine, and no upstream
+is contacted. `CandidateSource` (`primary` / `target` / `fallback` /
+`rule_target` / `unlisted`) is a display join local to the plan's root model
+first, since the same upstream can occupy different slots under different models.
+
+The wire contract, including the gaps not yet expressible (environment-variable
+provenance, per-rule match traces, live RPM/TPM consumption, SSE push), is
+[`ADMIN_API.md`](ADMIN_API.md).

@@ -59,3 +59,25 @@ If running `cargo bench`, verify the following latency budgets on the hot path:
 - **`inspect_request` (`simd-json` metadata + token estimation on 4 KB JSON payload):** `< 80 µs`
 - **`resolve_candidates` (Rule matching + EWMA lookup + `ArcSwap::load`):** `< 5 µs`
 - **Full in-process routing overhead (Ingress -> Mock SSE First Chunk Egress on localhost):** `< 1.5 ms` at p99 under 1,000 concurrent connections.
+
+---
+
+## 4. Admin Surface Tests (`src/admin/mod.rs`)
+The admin surface is off the request path, so its tests are unit tests over the
+types rather than SSE fixtures. The contract they pin down lives in
+[`ADMIN_API.md`](ADMIN_API.md).
+
+| Property | Test asserts |
+|---|---|
+| Redaction by construction | a serialized `AdminSnapshot` never contains a configured key, and `user:pass@` in `base_url` becomes `***@host` |
+| Breaker phase | 5 failures against threshold 5 reads `open` with a bounded countdown; failures after cooldown read `half_open`; a success reads `closed` |
+| TTFT headroom | a 2 s EWMA against a 2500 ms watchdog reads 80 %, and an unobserved upstream reads `null`, not `0` |
+| Orphans | a health row the active config dropped is returned with `configured: false` and counted in `orphans` |
+| Validation spans | an unknown key yields `oxide::config::toml` with a 1-based line pointing at it |
+| Apply safety | read-only refuses; an applied document advances the generation; a rejected one leaves the previous config serving |
+| X-ray fidelity | attempt order and `CandidateSource` come from `resolve_candidates`; `weighted_random` samples exactly one target; no upstream is contacted |
+
+Two invariants deserve a reviewer's eye in every future change: no handler may
+serialize `ProviderConfig` directly, and snapshot assembly stays O(upstreams)
+with relaxed atomic loads only. If assembly ever grows a per-request loop, add it
+to the §3 latency budgets.

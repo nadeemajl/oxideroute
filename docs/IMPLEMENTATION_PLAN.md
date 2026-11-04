@@ -1,6 +1,6 @@
 # OxideRoute — Phased Implementation Plan for Coding Agent
 
-Execute these five milestones sequentially. Do not proceed to the next milestone until all verification commands for the current milestone pass with zero warnings.
+Execute these six milestones sequentially. Do not proceed to the next milestone until all verification commands for the current milestone pass with zero warnings.
 
 ---
 
@@ -92,3 +92,47 @@ Execute these five milestones sequentially. Do not proceed to the next milestone
 ### Verification
 - Execute `cargo clippy --all-targets -- -D warnings` and `cargo test --all-targets`.
 - Verify `cargo run -- dry-run --config examples/production.toml --model auto --prompt "Hello"` outputs a formatted routing trace table.
+
+---
+
+## Milestone 6: Admin Surface (TUI and Embedded SPA)
+The admin surface is not a Grafana replacement: `/metrics` already covers rates,
+p99 TTFT, the rejection split, and inflight requests. It carries only what a
+scrape cannot — configuration, breaker phase and countdown, tenant budgets,
+reload diagnostics, and a routing X-ray. The client contract, including the JSON
+shapes and the gaps still open, is [`ADMIN_API.md`](ADMIN_API.md).
+
+### Deliverables
+1. **`src/admin/mod.rs`** *(implemented)*:
+   - `AdminState` over `Arc<AppState>`: generation counter, `ArcSwap<ReloadStatus>`,
+     `WritePolicy::ReadOnly` default. No field added to `AppState`.
+   - `RedactedConfig` masking keys and URL userinfo by construction;
+     `SecretStatus` rows so an operator can see a key is present without it.
+   - `HealthSnapshot` joining the health table against the config: nullable
+     `ewma_ttft_us`, `ttft_headroom_pct` against each provider's watchdog,
+     breaker phase/countdown, and `configured: false` orphans.
+   - `ValidationReport` with `miette` codes and 1-based source spans;
+     lenient parse for validation, strict interpolation for apply.
+   - `RouteExplain` running `inspect_request` + `resolve_candidates`, no upstream
+     call, candidates labelled `primary`/`target`/`fallback`/`rule_target`.
+2. **`src/admin/http.rs`** *(pending)*: axum handlers for the six paths, with
+   `Extension<AdminState>` on `build_admin_router` so the handler state can stay
+   `Arc<AppState>`. `apply` returns `403` when read-only, `422` on rejection.
+3. **`src/main.rs`** *(pending)*: `serve` constructs `AdminState` and passes it to
+   `build_admin_router`; writes stay disabled until a `ui.allow_writes` key
+   (schema-validated) opts in.
+4. **`src/config/watcher.rs`** *(pending)*: call `note_reload` on file and
+   `SIGHUP` reloads so `last_reload` matches the serving generation.
+5. **`oxide top`** *(pending)*: ratatui client polling `/admin/snapshot` at 1 Hz,
+   with `POST /admin/explain` on demand. Proves the contract before any asset
+   pipeline exists.
+6. **Embedded SPA** *(later)*: static assets behind a feature flag, served on
+   `admin_listen` from the same JSON; no server change required.
+
+### Verification
+- `cargo test --lib admin::` — redaction never leaks a key, breaker phase and
+  countdown derive correctly, orphan rows are flagged, a rejected apply keeps the
+  previous config live, and the X-ray renders attempt order with sources.
+- Once wired: `curl -s localhost:9090/admin/snapshot | jq .config_generation`
+  returns the serving generation, and `POST /admin/config/apply` with an invalid
+  body returns `422` while the old config keeps serving.

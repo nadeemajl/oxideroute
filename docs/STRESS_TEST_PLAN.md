@@ -234,6 +234,7 @@ Capacity ceiling = highest RPS sustained for ≥ 5 min inside SLO.
 | ST-25 | Scrape under load | `/metrics` scrape every 1 s at 50 % capacity | router overhead delta < 0.2 ms; counter monotonicity holds |
 | ST-26 | Exporter down | `otlp_endpoint` set to a black hole, full load | no unbounded memory growth, no backpressure stall in the request path |
 | ST-27 | Redaction cost | log level `info`, 10 k req/s | PII regex pass adds < 50 µs/line; confirm no O(n²) behaviour on long lines |
+| ST-28 | Admin snapshot under load *(once wired)* | `/admin/snapshot` polled at 1 Hz at 50 % capacity | request-path p99 delta < 0.1 ms; assembly < 1 ms; no `DashMap` growth or lock contention — assembly is relaxed atomic loads plus one health-table pass |
 
 ---
 
